@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<!-- saved from url=(0113)https://waxlondon.com/web-pixels@1b3c7779w6e1f7d30p7ae783d3m9b5a05aa/custom/web-pixel-252313976@1/sandbox/modern/ -->
+<html><head><meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+    
+    <title>Wax London | Clothes With Character</title>
+    <script src="./s1b3c7779w6e1f7d30p7ae783d3m9b5a05aam.js.download"></script>
+
+    <script type="text/javascript">
+  (function(shopify) {shopify.extend('WebPixel::Render', function(api) {
+var analytics=api.analytics,browser=api.browser,init=api.init;
+
+// Step 1. Initialize the JavaScript pixel SDK (make sure to exclude HTML)
+
+
+// Step 2. Subscribe to customer events with analytics.subscribe(), and add tracking
+//  analytics.subscribe("all_standard_events", function (event) {
+//    console.log("Event data ", event?.data);
+//  });
+
+function getLangFromCookie(checkoutLocale) {
+  var cookies = document.cookie.split(';');
+  for (var i = 0; i < cookies.length; i++) {
+    var cookie = cookies[i].trim();
+    if (cookie.startsWith('weglot_lang=')) {
+      return cookie.substring('weglot_lang='.length);
+    }
+  }
+  return checkoutLocale || 'en';
+}
+
+function sendLangToKlaviyo(email, lang) {
+  if (!email) return;
+  fetch('https://a.klaviyo.com/client/profiles/?company_id=WkTqs3', {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      'revision': '2024-02-15'
+    },
+    body: JSON.stringify({
+      data: {
+        type: 'profile',
+        attributes: {
+          email: email,
+          properties: { lang: lang }
+        }
+      }
+    })
+  });
+}
+
+// Catches returning/logged-in customers
+analytics.subscribe('checkout_started', (event) => {
+  var email = event.data.checkout.email;
+  var lang = getLangFromCookie(event.data.checkout.locale);
+  sendLangToKlaviyo(email, lang);
+});
+
+// Catches all new customers when they submit email
+analytics.subscribe('checkout_contact_info_submitted', (event) => {
+  var email = event.data.checkout.email;
+  var lang = getLangFromCookie(event.data.checkout.locale);
+  sendLangToKlaviyo(email, lang);
+});
+
+});})(self.webPixelsManager.createShopifyExtend('252313976', 'custom'));
+
+</script>
+
+  </head>
+  <body>
+
+</body></html>

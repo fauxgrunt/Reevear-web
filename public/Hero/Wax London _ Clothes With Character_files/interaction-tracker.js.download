@@ -1,0 +1,324 @@
+(function () {
+  'use strict';
+
+  // ========================================
+  // Product data cache & pre-fetching
+  // ========================================
+  var PRODUCT_URL_PATTERN = /^(?:\/[a-z]{2}(?:-[a-z]{2})?)?\/products\/([^/?#]+)/i;
+  var PRODUCT_LINK_SELECTOR = 'a[href*="/products/"]:not(a[href*="/collections/products/"]:not(a[href*="/collections/products/products/"]))';
+
+  var leafScript = document.querySelector('script[src*="interaction-tracker"]');
+  var productCache = {};
+  var fetchPromises = {};
+
+  function getCurrency() {
+    return (leafScript && leafScript.getAttribute('data-currency')) || '';
+  }
+
+  function getListContext() {
+    if (leafScript && leafScript.hasAttribute('data-collection-id')) {
+      return {
+        item_list_name: leafScript.getAttribute('data-collection-title') || '',
+        item_list_id: leafScript.getAttribute('data-collection-id') || ''
+      };
+    }
+    return { item_list_name: '', item_list_id: '' };
+  }
+
+  // Extract product handle from a URL
+  function getHandleFromUrl(url) {
+    var match = url.pathname.match(PRODUCT_URL_PATTERN);
+    return match ? match[1] : null;
+  }
+
+  // Parse collection products from Liquid-rendered JSON (primary data source)
+  function loadCollectionProducts() {
+    try {
+      var el = document.getElementById('leaf-collection-products');
+      if (!el) return;
+      var products = JSON.parse(el.textContent);
+      for (var i = 0; i < products.length; i++) {
+        var p = products[i];
+        productCache[p.handle] = {
+          id: p.sku || String(p.variant_id),
+          name: p.title,
+          brand: p.vendor,
+          category: p.type,
+          variant: p.variant_title,
+          price: (p.price * 0.01).toFixed(2),
+          productId: String(p.id),
+          variantId: String(p.variant_id),
+          sku: p.sku || '',
+          url: p.url,
+          handle: p.handle,
+          compareAtPrice: typeof p.compare_at_price === 'number'
+            ? (p.compare_at_price * 0.01).toFixed(2)
+            : undefined
+        };
+      }
+    } catch (e) {
+      // Silently fail if collection data is unavailable
+    }
+  }
+
+  // Fetch product data from /products/{handle}.js (fallback data source)
+  function fetchProduct(handle) {
+    if (productCache[handle]) return Promise.resolve(productCache[handle]);
+    if (fetchPromises[handle]) return fetchPromises[handle];
+
+    fetchPromises[handle] = fetch('/products/' + handle + '.js')
+      .then(function (res) { return res.json(); })
+      .then(function (data) {
+        var variant = data.variants[0];
+        var product = {
+          id: variant.sku || String(variant.id),
+          name: data.title,
+          brand: data.vendor,
+          category: data.type,
+          variant: variant.title,
+          price: (data.price * 0.01).toFixed(2),
+          productId: String(data.id),
+          variantId: String(variant.id),
+          sku: variant.sku || '',
+          url: '/products/' + handle,
+          handle: handle,
+          compareAtPrice: typeof data.compare_at_price === 'number'
+            ? (data.compare_at_price * 0.01).toFixed(2)
+            : undefined
+        };
+        productCache[handle] = product;
+        return product;
+      })
+      .catch(function () {
+        return null;
+      });
+
+    return fetchPromises[handle];
+  }
+
+  // Scan DOM for product links and pre-fetch any missing from cache
+  function prefetchVisibleProducts() {
+    var links = document.querySelectorAll(PRODUCT_LINK_SELECTOR);
+    var seen = {};
+    for (var i = 0; i < links.length; i++) {
+      try {
+        var url = new URL(links[i].getAttribute('href'), window.location.origin);
+        var handle = getHandleFromUrl(url);
+        if (handle && !productCache[handle] && !seen[handle]) {
+          seen[handle] = true;
+          fetchProduct(handle);
+        }
+      } catch (e) {
+        // skip invalid URLs
+      }
+    }
+  }
+
+  // ========================================
+  // select_item — Click handler with cached data
+  // ========================================
+
+  // Get product position among siblings in a product grid
+  var CARD_SELECTOR = '[data-product-id], .product-card, .grid__item, .card-wrapper, article, li';
+
+  function getProductIndex(anchor) {
+    var card = anchor.closest(CARD_SELECTOR);
+    if (!card || !card.parentElement) return undefined;
+    var siblings = card.parentElement.children;
+    for (var i = 0; i < siblings.length; i++) {
+      if (siblings[i] === card) return i;
+    }
+    return undefined;
+  }
+
+  document.body.addEventListener('click', function (e) {
+    var anchor = e.target.closest('a[href]');
+    if (!anchor) return;
+
+    var href = anchor.getAttribute('href');
+    if (!href) return;
+
+    var url;
+    try {
+      url = new URL(href, window.location.origin);
+    } catch (_) {
+      return;
+    }
+
+    var handle = getHandleFromUrl(url);
+    if (!handle) return;
+
+    var product = productCache[handle];
+    if (!product) return;
+
+    if (window.Shopify && window.Shopify.analytics) {
+      var listContext = getListContext();
+      var currency = getCurrency();
+      var index = getProductIndex(anchor);
+      var variantFromUrl = url.searchParams.get('variant');
+
+      var payload = {
+        item_url: url.href,
+        item_handle: handle,
+        item_name: product.name,
+        item_list_name: listContext.item_list_name,
+        item_list_id: listContext.item_list_id,
+        affiliation: 'Online Store',
+        quantity: 1,
+        product_id: product.productId,
+        variant_id: variantFromUrl || product.variantId,
+        item_brand: product.brand,
+        item_category: product.category,
+        item_variant: product.variant,
+        sku: product.sku
+      };
+
+      if (currency) payload.currency = currency;
+      if (typeof index === 'number') payload.index = index;
+      var price = parseFloat(product.price);
+      if (!isNaN(price)) payload.price = price;
+
+      window.Shopify.analytics.publish('select_item', payload);
+    }
+  }, true);
+
+  // ========================================
+  // Initialize: load collection data, then pre-fetch remaining
+  // ========================================
+  loadCollectionProducts();
+  prefetchVisibleProducts();
+
+  // Re-scan when DOM changes (e.g. infinite scroll, AJAX filtering)
+  new MutationObserver(function () {
+    prefetchVisibleProducts();
+  }).observe(document.body, { childList: true, subtree: true });
+
+  // ========================================
+  // select_item_variant — Variant selector change detection
+  // ========================================
+  var isProductPage = leafScript && leafScript.hasAttribute('data-product-id');
+
+  if (isProductPage) {
+    var lastVariantId = null;
+    var debounceTimer = null;
+
+    // Read product data from Liquid-rendered data attributes (server-side, always reliable)
+    var productData = {
+      id: leafScript.getAttribute('data-product-id') || '',
+      title: leafScript.getAttribute('data-product-title') || '',
+      vendor: leafScript.getAttribute('data-product-vendor') || '',
+      type: leafScript.getAttribute('data-product-type') || '',
+      url: leafScript.getAttribute('data-product-url') || '',
+      currency: leafScript.getAttribute('data-currency') || '',
+      price: leafScript.getAttribute('data-product-price') || '',
+      compareAtPrice: leafScript.getAttribute('data-product-compare-at-price') || ''
+    };
+
+    // Parse variants data from JSON script tag for variant-level detail
+    var variantsMap = {};
+    try {
+      var variantsEl = document.getElementById('leaf-variants-data');
+      if (variantsEl) {
+        var variants = JSON.parse(variantsEl.textContent);
+        for (var vi = 0; vi < variants.length; vi++) {
+          variantsMap[String(variants[vi].id)] = variants[vi];
+        }
+      }
+    } catch (e) {
+      // Silently fail if variants data is unavailable or malformed
+    }
+
+    function publishVariantChange(variantId) {
+      if (!variantId || variantId === lastVariantId) return;
+      lastVariantId = variantId;
+
+      if (window.Shopify && window.Shopify.analytics) {
+        var variant = variantsMap[String(variantId)] || {};
+        var variantPrice = typeof variant.price === 'number' ? variant.price / 100 : undefined;
+        var compareAt = typeof variant.compare_at_price === 'number' ? variant.compare_at_price / 100 : undefined;
+        var discount = (compareAt && variantPrice) ? +(compareAt - variantPrice).toFixed(2) : undefined;
+
+        var payload = {
+          variant_id: String(variantId),
+          product_id: productData.id,
+          product_title: productData.title,
+          product_vendor: productData.vendor,
+          currency: productData.currency,
+          event_source_url: window.location.href,
+          item_category: productData.type,
+          affiliation: 'Online Store',
+          quantity: 1
+        };
+
+        if (variant.title) payload.item_variant = variant.title;
+        if (variant.sku) payload.sku = variant.sku;
+        if (typeof variantPrice === 'number') payload.price = variantPrice;
+        if (typeof discount === 'number' && discount > 0) payload.discount = discount;
+
+        window.Shopify.analytics.publish('select_item_variant', payload);
+      }
+    }
+
+    function debouncedPublish(variantId) {
+      clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(function () {
+        publishVariantChange(variantId);
+      }, 200);
+    }
+
+    // Get variant from URL parameter
+    function getVariantFromUrl() {
+      var params = new URLSearchParams(window.location.search);
+      return params.get('variant');
+    }
+
+    // Primary: Watch form input[name="id"] for changes
+    var variantInput = document.querySelector('form[action*="/cart/add"] input[name="id"]');
+
+    if (variantInput) {
+      // Record initial baseline without firing
+      lastVariantId = variantInput.value || getVariantFromUrl();
+
+      // Listen for direct value changes
+      variantInput.addEventListener('change', function () {
+        debouncedPublish(variantInput.value);
+      });
+
+      // MutationObserver for attribute changes (e.g., value set programmatically)
+      var observer = new MutationObserver(function (mutations) {
+        for (var i = 0; i < mutations.length; i++) {
+          if (mutations[i].attributeName === 'value') {
+            debouncedPublish(variantInput.value);
+            break;
+          }
+        }
+      });
+
+      observer.observe(variantInput, { attributes: true });
+    } else {
+      // Record initial baseline from URL
+      lastVariantId = getVariantFromUrl();
+    }
+
+    // Secondary: Intercept history state changes for ?variant= URL param
+    var originalPushState = history.pushState;
+    var originalReplaceState = history.replaceState;
+
+    history.pushState = function () {
+      originalPushState.apply(this, arguments);
+      var variantId = getVariantFromUrl();
+      if (variantId) debouncedPublish(variantId);
+    };
+
+    history.replaceState = function () {
+      originalReplaceState.apply(this, arguments);
+      var variantId = getVariantFromUrl();
+      if (variantId) debouncedPublish(variantId);
+    };
+
+    window.addEventListener('popstate', function () {
+      var variantId = getVariantFromUrl();
+      if (variantId) debouncedPublish(variantId);
+    });
+  }
+})();

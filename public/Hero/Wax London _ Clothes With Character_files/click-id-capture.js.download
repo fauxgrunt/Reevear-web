@@ -1,0 +1,746 @@
+(function () {
+  'use strict';
+
+  // ========================================
+  // Last-click Google click-id + UTM capture
+  // ========================================
+  // Captures the Google click id (gclid/gbraid/wbraid) and the UTM set from
+  // landings and attaches them to the Shopify cart as cart attributes. Click
+  // ids are last-click; UTMs are kept as both first-touch and last-touch. Cart attributes carry through checkout onto the order
+  // (note_attributes on orders/paid), replacing reliance on Shopify
+  // landing_site (frozen at first touch). Theme-agnostic by design: matches
+  // cart mutations by URL, never by button or DOM selectors.
+
+  if (window.__leafSignal) return;
+  window.__leafSignal = true;
+
+  // One source of truth for the Google click ids; the wider sets derive from it.
+  // The Google set is atomic; gclid/gbraid/wbraid mark a fresh Google click,
+  // gclsrc only qualifies one (aw.ds = Google Ads, 3p.ds = SA360/DV360) and
+  // must never trigger a set replacement on its own — so it stays out of the
+  // fresh-click list and only joins the fuller sets below.
+  var GOOGLE_CLICK_KEYS = ['gclid', 'gbraid', 'wbraid'];
+  // The full atomic set carried and stored together: the click ids + gclsrc.
+  var GOOGLE_KEYS = GOOGLE_CLICK_KEYS.concat(['gclsrc']);
+  // The params read straight from the URL: the Google set + Meta's fbclid.
+  // (Ad/affiliate networks are read separately via NETWORK_KEYS.)
+  var URL_KEYS = GOOGLE_KEYS.concat(['fbclid']);
+  var UTM_KEYS = ['utm_source', 'utm_medium', 'utm_campaign', 'utm_term', 'utm_content', 'utm_id'];
+  // Other ad + affiliate networks: each is its own last-click value with its
+  // own window, so a Google landing never wipes a still-valid TikTok click
+  // (same rule the fbclid handling established). Affiliate params (awc = Awin,
+  // clickref = Webgains/Partnerize, cjevent = CJ, irclickid/im_ref = Impact)
+  // capture-and-attach exactly like the ad-network ids.
+  var NETWORK_KEYS = [
+    'msclkid', 'ttclid', 'epik', 'ScCid', 'rdt_cid', 'oppref',
+    'awc', 'clickref', 'cjevent', 'irclickid', 'im_ref'
+  ];
+  // ESP identity tokens (Klaviyo/Mailchimp/dotdigital/Emarsys email-click
+  // params). Captured ungated like the click ids — the landing moment is
+  // unrepeatable — but they are only ever TOKENS here: resolution to a person
+  // happens server-side, gated on marketing consent. Email-shaped values are
+  // rejected (EMAIL_RE below), so a token is never a stored email address.
+  var ESP_KEYS = ['_kx', 'mc_eid', 'dm_i', 'sc_src', 'sc_uid', 'sc_llid', 'sc_lid', 'sf_id'];
+  // All click ids share one storage shape: entry.ids maps each key to { v, ts }.
+  // gclid/gbraid/wbraid are the atomic Google set (replaced together, sharing
+  // one ts); gclsrc rides that set as a qualifier; fbclid and the networks are
+  // per-key last-click. CLID_KEYS is every key that carries a timestamp — gclsrc
+  // (the qualifier) is deliberately not one of them.
+  var CLID_KEYS = GOOGLE_CLICK_KEYS.concat(['fbclid'], NETWORK_KEYS);
+  var ATTR = {
+    gclid: 'leaf_signal_gclid',
+    gbraid: 'leaf_signal_gbraid',
+    wbraid: 'leaf_signal_wbraid',
+    gclsrc: 'leaf_signal_gclsrc',
+    fbclid: 'leaf_signal_fbclid'
+  };
+  var TS_ATTR = 'leaf_signal_click_ts';
+  var FB_TS_ATTR = 'leaf_signal_fbclid_ts';
+  // UTMs travel as packed JSON attributes (params + ts), not six keys each, to
+  // keep the order admin readable. We keep two independent sets: first-touch
+  // (the first campaign that ever landed this visitor) and last-touch (the most
+  // recent). A visitor who clicks a Google ad, then a Facebook ad days later,
+  // ends up with Google in utm_first and Facebook in utm_last.
+  var UTM_FIRST_ATTR = 'leaf_signal_utm_first';
+  var UTM_LAST_ATTR = 'leaf_signal_utm_last';
+  // Legacy single-set attribute, cleared on write so a stale value can't sit
+  // alongside the first/last pair on the order.
+  var UTM_ATTR = 'leaf_signal_utm';
+  // ESP identity tokens travel as one packed JSON attribute keyed
+  // {token, token_ts} per ESP, same shape as the click-id blob below.
+  var ESP_ATTR = 'leaf_signal_esp';
+  // Every ad-network click id — Google (gclid/gbraid/wbraid/gclsrc) and the
+  // rest (msclkid/ttclid/…) — travels in ONE packed JSON attribute keyed
+  // {id, id_ts} per network, so all click ids live under a single order key.
+  var CLIDS_ATTR = 'leaf_signal_clids';
+  var STORE_KEY = 'leaf_signal_click_ids';
+  // Purchase boundary: the web pixel writes the purchase time (epoch seconds) to
+  // this shared cookie on checkout_completed. A completed purchase closes the
+  // attribution journey, so on the next load we drop every touch captured at or
+  // before it and the next order starts fresh (SIG-2569).
+  var PURCHASE_COOKIE = 'leaf_last_purchase';
+  var MAX_AGE_MS = 90 * 24 * 60 * 60 * 1000; // matches gtag _gcl_aw
+  // UTM carry-forward window. Default is "forever": a UTM touch is carried and
+  // stamped until a purchase prunes it or the cookie is cleared, with no rolling
+  // age limit (SIG-2571). A client can restore a bounded window by setting
+  // data-utm-cap-days on the tracker <script> tag (e.g. 90). Click-id windows
+  // are unaffected — they keep their own per-network limits below.
+  var UTM_MAX_AGE_MS = (function () {
+    try {
+      var s = document.querySelector('script[src*="click-id-capture"]');
+      var days = s && parseInt(s.getAttribute('data-utm-cap-days'), 10);
+      return days > 0 ? days * 24 * 60 * 60 * 1000 : Infinity;
+    } catch (e) {
+      return Infinity;
+    }
+  })();
+  var MAX_AGE_MS_FB =  7 * 24 * 60 * 60 * 1000; // Meta 7-day attribution window
+  var MAX_AGE_MS_AFF = 30 * 24 * 60 * 60 * 1000; // affiliate networks: 30 days
+  var MAX_AGE_MS_MCSFT = 90 * 24 * 60 * 60 * 1000; //Microsoft: 90 days
+  // Per-key attribution windows. Google (gclid/gbraid/wbraid/gclsrc) and
+  // Microsoft (msclkid) run 90 days; affiliate networks (Awin/Webgains/
+  // Partnerize/CJ/Impact) run 30; fbclid and everything else run 7.
+  var CLID_MAX_AGE = {
+    gclid: MAX_AGE_MS,
+    gbraid: MAX_AGE_MS,
+    wbraid: MAX_AGE_MS,
+    gclsrc: MAX_AGE_MS,
+    msclkid: MAX_AGE_MS_MCSFT,
+    fbclid: MAX_AGE_MS_FB,
+    awc: MAX_AGE_MS_AFF,
+    clickref: MAX_AGE_MS_AFF,
+    cjevent: MAX_AGE_MS_AFF,
+    irclickid: MAX_AGE_MS_AFF,
+    im_ref: MAX_AGE_MS_AFF,
+    'default': MAX_AGE_MS_FB
+  };
+  // ESP tokens: 7 days. An email click is a session-scoped identity hint, not a
+  // paid-click attribution claim, so it expires on the short window rather than
+  // the 90-day ad-network one.
+  var MAX_AGE_MS_ESP = 7 * 24 * 60 * 60 * 1000;
+  // ESPs can be configured to inject the subscriber's email into a UTM value;
+  // GA4 prohibits PII in campaign params, so such values are never stored.
+  var EMAIL_RE = /[^\s@]+@[^\s@]+\.[^\s@]+/;
+  // Identifier-cookie snapshot (_fbp/_fbc/GA client id) written to the cart so
+  // the order webhook carries real match keys even when the purchase beacon
+  // dies. Unlike URL params these are identifier cookies: the snapshot is only
+  // written while Shopify marketing consent is granted, and cleared otherwise.
+  var SNAP_ATTR = 'leaf_signal_idsnap';
+  var writing = false;
+  var timer = null;
+
+  // Landing capture (last-click-wins): overwrite the stored id set only when a
+  // new landing carries a click id; otherwise leave the existing value intact.
+  function captureFromUrl() {
+    try {
+      var q = new URLSearchParams(location.search);
+      var found = {};
+      URL_KEYS.forEach(function (k) {
+        var v = q.get(k);
+        if (v) found[k] = v;
+      });
+      var foundUtm = {};
+      UTM_KEYS.forEach(function (k) {
+        var v = q.get(k);
+        if (v && !EMAIL_RE.test(v)) foundUtm[k] = v;
+      });
+      var foundNet = {};
+      NETWORK_KEYS.forEach(function (k) {
+        // networks are inconsistent about param casing (ScCid vs sccid)
+        var v = q.get(k) || q.get(k.toLowerCase());
+        if (v) foundNet[k] = v;
+      });
+      var foundEsp = {};
+      ESP_KEYS.forEach(function (k) {
+        var v = q.get(k);
+        if (v && !EMAIL_RE.test(v)) foundEsp[k] = v;
+      });
+      if (
+        !Object.keys(found).length &&
+        !Object.keys(foundUtm).length &&
+        !Object.keys(foundNet).length &&
+        !Object.keys(foundEsp).length
+      ) {
+        return; // nothing in URL: keep existing
+      }
+
+      var now = Date.now();
+      var prev = readRaw();
+
+      // All click ids live in one map: ids[key] = { v, ts }. Start by carrying
+      // every unexpired stored id forward (each with its own window), then layer
+      // this landing on top.
+      var ids = {};
+      if (prev && prev.ids) {
+        Object.keys(prev.ids).forEach(function (k) {
+          var e = prev.ids[k];
+          if (e && e.v && now - (e.ts || 0) <= clidMaxAge(k)) ids[k] = e;
+        });
+      }
+
+      // Google (gclid/gbraid/wbraid, plus qualifying gclsrc) is one atomic set
+      // from a single click: a fresh Google click replaces the whole set (so an
+      // old gclid never sits next to a new gbraid), all sharing this landing's
+      // ts; gclsrc never triggers a replacement on its own. A landing with no
+      // Google click leaves the carried-forward set untouched.
+      var freshGoogle = GOOGLE_CLICK_KEYS.some(function (k) { return found[k]; });
+      if (freshGoogle) {
+        GOOGLE_KEYS.forEach(function (k) { delete ids[k]; });
+        GOOGLE_KEYS.forEach(function (k) { if (found[k]) ids[k] = { v: found[k], ts: now }; });
+      }
+
+      // fbclid + the other networks: per-key last-click. A fresh value replaces
+      // only its own key; other keys keep their carried-forward value and ts, so
+      // a Google landing never wipes a still-valid Meta or TikTok id.
+      if (found.fbclid) ids.fbclid = { v: found.fbclid, ts: now };
+      NETWORK_KEYS.forEach(function (k) {
+        if (foundNet[k]) ids[k] = { v: foundNet[k], ts: now };
+      });
+
+      // ESP tokens: per-key last-click, exactly like the networks. A fresh
+      // token replaces only its own key; every other key keeps its
+      // carried-forward value and ts (dropped once past the ESP window), so a
+      // Klaviyo landing never wipes a still-valid Mailchimp token.
+      var esp = {};
+      ESP_KEYS.forEach(function (k) {
+        if (foundEsp[k]) {
+          esp[k] = { v: foundEsp[k], ts: now };
+        } else if (
+          prev && prev.esp && prev.esp[k] && prev.esp[k].v &&
+          now - (prev.esp[k].ts || 0) <= MAX_AGE_MS_ESP
+        ) {
+          esp[k] = prev.esp[k];
+        }
+      });
+
+      // UTMs are their own atomic set (like the Google trio), split into two
+      // independent touches:
+      //  - last-touch: last-click-wins. A landing with any UTM replaces the
+      //    whole set so mixed-campaign params never blend; a landing with none
+      //    carries the existing (unexpired) set forward with its original ts,
+      //    so the window isn't silently extended.
+      //  - first-touch: the first campaign seen, frozen. It's only (re)set when
+      //    there's no live first-touch yet; otherwise it's carried forward
+      //    untouched, even as last-touch keeps changing.
+      var prevFirst = utmFirstOf(prev);
+      var prevFirstTs = utmFirstTsOf(prev);
+      var prevLast = utmLastOf(prev);
+      var prevLastTs = utmLastTsOf(prev);
+      var utmFirst = null, utmFirstTs;
+      var utmLast = null, utmLastTs;
+      if (Object.keys(foundUtm).length) {
+        if (prevFirst && now - prevFirstTs <= UTM_MAX_AGE_MS) {
+          utmFirst = prevFirst; // keep the frozen first-touch
+          utmFirstTs = prevFirstTs;
+          utmLast = foundUtm; // a later campaign: last-touch now diverges
+          utmLastTs = now;
+        } else {
+          // No live first-touch: this landing becomes it, and last-touch would
+          // be an identical copy, so we don't store one. An absent last-touch
+          // means "same as first-touch" downstream.
+          utmFirst = foundUtm;
+          utmFirstTs = now;
+        }
+      } else if (prevFirst && now - prevFirstTs <= UTM_MAX_AGE_MS) {
+        // Last-touch is anchored to first-touch: without a live first-touch
+        // there's no UTM session to carry, so we never keep last-touch alone.
+        // first-touch ts <= last-touch ts (same window), so a live first-touch
+        // guarantees a live last-touch — they're carried as one pair.
+        utmFirst = prevFirst;
+        utmFirstTs = prevFirstTs;
+        utmLast = prevLast;
+        utmLastTs = prevLastTs;
+      }
+
+      if (!Object.keys(ids).length && !Object.keys(esp).length && !utmFirst && !utmLast) {
+        return; // nothing (unexpired) to store
+      }
+
+      var entry = { ids: ids };
+      if (Object.keys(esp).length) entry.esp = esp;
+      if (utmFirst) {
+        entry.utmFirst = utmFirst;
+        entry.utmFirstTs = utmFirstTs;
+      }
+      if (utmLast) {
+        entry.utmLast = utmLast;
+        entry.utmLastTs = utmLastTs;
+      }
+      localStorage.setItem(STORE_KEY, JSON.stringify(entry));
+    } catch (e) {
+      // Silently fail if localStorage/URL parsing is unavailable
+    }
+  }
+
+  function readRaw() {
+    try {
+      var raw = JSON.parse(localStorage.getItem(STORE_KEY));
+      return raw ? migrate(raw) : null;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  // Upgrade legacy entries to the unified shape: entry.ids maps every click id
+  // to { v, ts }. Older shapes stored the Google set as plain strings under a
+  // shared entry.ts, fbclid under ids.fbclid + a top-level entry.fbTs, and the
+  // other networks under entry.net; fold all of those into ids[key] = { v, ts }.
+  // (The rewritten entry is persisted on the next capture; reads normalize
+  // meanwhile.) A legacy marker — entry.ts / entry.net / entry.fbTs — flags a
+  // pre-unification entry; without one the entry is already unified.
+  function migrate(raw) {
+    if (!(raw && (raw.ts !== undefined || raw.net || raw.fbTs))) return raw;
+    var out = { ids: {} };
+    var ts = raw.ts || 0;
+    if (raw.ids) {
+      GOOGLE_KEYS.forEach(function (k) {
+        if (raw.ids[k]) out.ids[k] = { v: raw.ids[k], ts: ts };
+      });
+      if (raw.ids.fbclid) out.ids.fbclid = { v: raw.ids.fbclid, ts: raw.fbTs || ts };
+    }
+    if (raw.net) {
+      Object.keys(raw.net).forEach(function (k) {
+        var e = raw.net[k];
+        if (e && e.v && !out.ids[k]) out.ids[k] = e;
+      });
+    }
+    ['esp', 'utmFirst', 'utmFirstTs', 'utmLast', 'utmLastTs', 'utm', 'utmTs'].forEach(function (k) {
+      if (raw[k] !== undefined) out[k] = raw[k];
+    });
+    return out;
+  }
+
+  // First/last-touch UTM accessors. Legacy entries hold a single `utm`/`utmTs`
+  // pair (written before the touch split); read that as BOTH first and last,
+  // the best knowledge available for a cart created under the old shape.
+  function utmFirstOf(raw) {
+    return (raw && (raw.utmFirst || raw.utm)) || null;
+  }
+
+  function clidMaxAge(key) {
+    return CLID_MAX_AGE[key] || CLID_MAX_AGE['default'];
+  }
+
+  // The packed value for the clids cart attribute: {key: id, key_ts: ts} for
+  // every click id in the unified stored.ids map that is still inside its own
+  // window. gclsrc rides along as a qualifier (bare value, no ts) whenever a
+  // Google click id survives. Returns null when none are live.
+  function clidsAttrValue(stored) {
+    var ids = stored.ids || {};
+    var now = Date.now();
+    var packed = {};
+    var any = false;
+    CLID_KEYS.forEach(function (k) {
+      var e = ids[k];
+      if (e && e.v && now - (e.ts || 0) <= clidMaxAge(k)) {
+        packed[k] = e.v;
+        packed[k + '_ts'] = isoTs(e.ts);
+        any = true;
+      }
+    });
+    var gPresent = GOOGLE_CLICK_KEYS.some(function (k) { return packed[k]; });
+    if (gPresent && ids.gclsrc && ids.gclsrc.v) packed.gclsrc = ids.gclsrc.v;
+    return any ? JSON.stringify(packed) : null;
+  }
+
+  // The packed value for the ESP cart attribute: {key: token, key_ts: iso} for
+  // every stored ESP token still inside the 7-day window. Same shape and same
+  // ISO stamping as the click-id blob, so Connect parses both the same way.
+  // Returns null when none are live.
+  function espAttrValue(stored) {
+    if (!stored.esp) return null;
+    var now = Date.now();
+    var packed = {};
+    var any = false;
+    ESP_KEYS.forEach(function (k) {
+      var e = stored.esp[k];
+      if (e && e.v && now - (e.ts || 0) <= MAX_AGE_MS_ESP) {
+        packed[k] = e.v;
+        packed[k + '_ts'] = isoTs(e.ts);
+        any = true;
+      }
+    });
+    return any ? JSON.stringify(packed) : null;
+  }
+
+  // Timestamps stamped onto the order use one ISO 8601 UTC string (seconds
+  // precision, e.g. "2026-04-11T14:32:05Z"): Snowflake and the downstream GA4
+  // passing parse it natively and can sort/date-math on it, and it reads as an
+  // unambiguous date for order admins — no separate human label needed. The
+  // internal localStorage timestamps stay epoch ms for windowing (SIG-2570).
+  function isoTs(ms) {
+    var n = Number(ms);
+    if (!n) return '';
+    var d = new Date(n);
+    if (isNaN(d.getTime())) return '';
+    return d.toISOString().replace(/\.\d{3}Z$/, 'Z');
+  }
+
+  function utmFirstTsOf(raw) {
+    return (raw && raw.utmFirstTs) || (raw && raw.utmTs) || (raw && raw.ts) || 0;
+  }
+
+  // Last-touch falls back to first-touch when it was never stored on its own:
+  // a single-touch journey (one campaign ever seen) records only utmFirst, so
+  // without this fallback the cart would carry leaf_signal_utm_first but no
+  // leaf_signal_utm_last. Mirroring first into last keeps both attributes
+  // present and equal until a later campaign makes last diverge (SIG-2567).
+  function utmLastOf(raw) {
+    return (raw && (raw.utmLast || raw.utmFirst || raw.utm)) || null;
+  }
+
+  function utmLastTsOf(raw) {
+    return (raw && (raw.utmLastTs || raw.utmFirstTs || raw.utmTs || raw.ts)) || 0;
+  }
+
+  function utmFirstLive(stored) {
+    return !!(utmFirstOf(stored) && Date.now() - utmFirstTsOf(stored) <= UTM_MAX_AGE_MS);
+  }
+
+  function utmLastLive(stored) {
+    return !!(utmLastOf(stored) && Date.now() - utmLastTsOf(stored) <= UTM_MAX_AGE_MS);
+  }
+
+  // The packed value written to a UTM cart attribute: the UTM params plus their
+  // capture ts, as one JSON string, so Connect can parse a single attribute.
+  function utmAttrValue(params, ts) {
+    var packed = {};
+    UTM_KEYS.forEach(function (k) {
+      if (params[k]) packed[k] = params[k];
+    });
+    packed.ts = isoTs(ts);
+    return JSON.stringify(packed);
+  }
+
+  // Returns the stored entry when it holds any click id, ESP token or UTM
+  // touch; per-key expiry is applied downstream (clidsAttrValue, espAttrValue,
+  // utm*Live), so there is no single entry-wide window to gate on anymore.
+  function getStored() {
+    var raw = readRaw();
+    if (!raw) return null;
+    var hasIds = raw.ids && Object.keys(raw.ids).length;
+    var hasEsp = raw.esp && Object.keys(raw.esp).length;
+    return hasIds || hasEsp || raw.utmFirst || raw.utmLast || raw.utm ? raw : null;
+  }
+
+  function getStoredFbclid() {
+    var raw = readRaw(); // unified: fbclid lives in ids.fbclid
+    var e = raw && raw.ids && raw.ids.fbclid;
+    if (!e || !e.v) return null;
+    if (Date.now() - (e.ts || 0) > MAX_AGE_MS_FB) return null; // expired
+    return e.v;
+  }
+
+  function getUrlWithFbclid() {
+    try {
+      var url = new URL(document.location.href);
+      if (!url.searchParams.has('fbclid')) {
+        var fbclid = getStoredFbclid();
+        if (fbclid) {
+          url.searchParams.set('fbclid', fbclid);
+        }
+      }
+      return url.toString();
+    } catch (e) {
+      return document.location.href;
+    }
+  }
+
+  function readCookie(name) {
+    try {
+      var m = document.cookie.match(new RegExp('(?:^|;\\s*)' + name + '=([^;]+)'));
+      return m ? decodeURIComponent(m[1]) : null;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  // Last purchase time in ms, or 0 when there is no purchase on record. The
+  // cookie holds epoch seconds (the web pixel's event-time unit); stored ids
+  // use ms, so scale up to compare.
+  function lastPurchaseMs() {
+    var v = readCookie(PURCHASE_COOKIE);
+    var n = v ? parseInt(v, 10) : 0;
+    return n > 0 ? n * 1000 : 0;
+  }
+
+  // Drop every stored touch captured at or before the last purchase, so the
+  // next order carries only the journey since that purchase. Idempotent: a
+  // touch captured after the purchase has a later ts and is never pruned, so
+  // this can run on every load with no fire-once bookkeeping — it simply keeps
+  // storage bounded to the current journey. Runs before captureFromUrl so a
+  // fresh post-purchase landing is classified as the new first-touch.
+  function pruneBeforeLastPurchase() {
+    try {
+      var floor = lastPurchaseMs();
+      if (!floor) return;
+      var raw = readRaw();
+      if (!raw) return;
+      var changed = false;
+      ['ids', 'esp'].forEach(function (bag) {
+        if (!raw[bag]) return;
+        Object.keys(raw[bag]).forEach(function (k) {
+          var e = raw[bag][k];
+          if (!e || (e.ts || 0) <= floor) { delete raw[bag][k]; changed = true; }
+        });
+      });
+      [['utmFirst', 'utmFirstTs'], ['utmLast', 'utmLastTs'], ['utm', 'utmTs']].forEach(function (pair) {
+        if (raw[pair[0]] !== undefined && (raw[pair[1]] || 0) <= floor) {
+          delete raw[pair[0]];
+          delete raw[pair[1]];
+          changed = true;
+        }
+      });
+      if (changed) localStorage.setItem(STORE_KEY, JSON.stringify(raw));
+    } catch (e) {}
+  }
+
+  // GA client id from the _ga cookie: "GA1.1.111.222" -> "111.222".
+  function gaClientId() {
+    var raw = readCookie('_ga');
+    if (!raw) return null;
+    var parts = raw.split('.');
+    return parts.length >= 4 ? parts.slice(-2).join('.') : null;
+  }
+
+  // Marketing consent via the Shopify Customer Privacy API. Absent API or any
+  // error reads as NOT granted: the snapshot must never be written on doubt.
+  function marketingAllowed() {
+    try {
+      return !!(
+        window.Shopify &&
+        window.Shopify.customerPrivacy &&
+        window.Shopify.customerPrivacy.marketingAllowed()
+      );
+    } catch (e) {
+      return false;
+    }
+  }
+
+  // Snapshot value, or null when consent is missing or no cookie is present.
+  function snapAttrValue() {
+    if (!marketingAllowed()) return null;
+    var snap = {};
+    var fbp = readCookie('_fbp');
+    var fbc = readCookie('_fbc');
+    var cid = gaClientId();
+    if (fbp) snap.fbp = fbp;
+    if (fbc) snap.fbc = fbc;
+    if (cid) snap.ga_cid = cid;
+    return Object.keys(snap).length ? JSON.stringify(snap) : null;
+  }
+
+  // The full attribute set the cart should carry right now. Empty string
+  // clears a stale key, so the cart mirrors the atomic sets and the snapshot
+  // disappears when consent is revoked.
+  function wantedAttributes(stored, snap) {
+    var want = {};
+    if (stored) {
+      // Google click ids now travel inside the packed CLIDS_ATTR blob; clear
+      // the legacy per-key attributes (and the Google ts) so a stale value from
+      // an earlier build can't sit alongside the blob on the cart.
+      want[ATTR.gclid] = '';
+      want[ATTR.gbraid] = '';
+      want[ATTR.wbraid] = '';
+      want[ATTR.gclsrc] = '';
+      want[TS_ATTR] = '';
+      // fbclid now travels inside the packed CLIDS_ATTR blob too; clear its
+      // legacy per-key attributes so a stale value can't sit alongside the blob.
+      want[ATTR.fbclid] = '';
+      want[FB_TS_ATTR] = '';
+      // last-touch never rides alone: it's only emitted alongside a live
+      // first-touch (which, sharing the window, is the one that expires first).
+      var utmLive = utmFirstLive(stored);
+      want[UTM_FIRST_ATTR] = utmLive
+        ? utmAttrValue(utmFirstOf(stored), utmFirstTsOf(stored))
+        : '';
+      want[UTM_LAST_ATTR] = utmLive && utmLastLive(stored)
+        ? utmAttrValue(utmLastOf(stored), utmLastTsOf(stored))
+        : '';
+      want[UTM_ATTR] = ''; // clear the legacy single-set attribute if present
+      want[CLIDS_ATTR] = clidsAttrValue(stored) || '';
+      // ESP tokens expire on their own 7-day window: an empty value clears the
+      // attribute once the last live token ages out.
+      want[ESP_ATTR] = espAttrValue(stored) || '';
+    }
+    want[SNAP_ATTR] = snap || '';
+    return want;
+  }
+
+  // Idempotent write: GET the cart, only POST /cart/update.js when a cart
+  // exists and our wanted values differ from what's already on the cart.
+  function reconcile() {
+    if (writing) return;
+    var stored = getStored();
+    var snap = snapAttrValue();
+    if (!stored && !snap) return; // nothing captured, nothing consented
+    fetch('/cart.js', { credentials: 'same-origin' })
+      .then(function (r) { return r.json(); })
+      .then(function (cart) {
+        if (!cart || cart.item_count === 0) return; // need a cart to attach to
+        var a = cart.attributes || {};
+        var want = wantedAttributes(stored, snap);
+        var changed = Object.keys(want).some(function (k) {
+          return (a[k] || '') !== want[k];
+        });
+        if (!changed) return; // idempotent no-op
+        writing = true;
+        return fetch('/cart/update.js', {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ attributes: want })
+        }).finally(function () {
+          writing = false;
+        });
+      })
+      .catch(function () {
+        writing = false;
+      });
+  }
+
+  function debouncedReconcile() {
+    clearTimeout(timer);
+    timer = setTimeout(reconcile, 400);
+  }
+
+  // Theme-agnostic: match cart mutations by URL, catch fetch + XHR. We do NOT
+  // match /cart/update.js (that's our own write) to avoid self-triggering.
+  var CART_MUT = /\/cart\/(add|change)(\.js)?(\?|$)/;
+
+  // Buy Now never touches the cart: Shopify's wallet script creates a one-off
+  // checkout via POST /wallets/checkouts (REST shape) or a Storefront API
+  // cartCreate mutation, so the reconcile flow above can't reach it. Instead
+  // we rewrite that request body in flight and inject the stored ids so they
+  // still land on the order as note_attributes / cart attributes.
+  var BUY_NOW = /\/wallets\/checkouts(\.json)?(\?|$)/;
+  var SF_GQL = /\/api\/[^/]+\/graphql\.json(\?|$)/;
+
+  function noteAttributes(stored, snap) {
+    var out = [];
+    if (stored) {
+      // All click ids (Google, fbclid, other networks) ride in the packed blob.
+      var clids = clidsAttrValue(stored);
+      if (clids) out.push({ name: CLIDS_ATTR, value: clids });
+      var esp = espAttrValue(stored);
+      if (esp) out.push({ name: ESP_ATTR, value: esp });
+      // last-touch never rides alone: only alongside a live first-touch (which,
+      // sharing the window, expires first).
+      if (utmFirstLive(stored)) {
+        out.push({ name: UTM_FIRST_ATTR, value: utmAttrValue(utmFirstOf(stored), utmFirstTsOf(stored)) });
+        if (utmLastLive(stored)) {
+          out.push({ name: UTM_LAST_ATTR, value: utmAttrValue(utmLastOf(stored), utmLastTsOf(stored)) });
+        }
+      }
+    }
+    if (snap) out.push({ name: SNAP_ATTR, value: snap });
+    return out;
+  }
+
+  // Returns the rewritten body string, or null when the request is not a
+  // buy-now checkout creation (or its body can't be safely modified).
+  function injectClickIds(url, body) {
+    if (typeof body !== 'string') return null;
+    var stored = getStored();
+    var snap = snapAttrValue();
+    if (!stored && !snap) return null;
+    try {
+      if (BUY_NOW.test(url)) {
+        var payload = JSON.parse(body);
+        if (!payload || !payload.checkout) return null;
+        var ours = noteAttributes(stored, snap);
+        var names = ours.map(function (x) { return x.name; });
+        var kept = (payload.checkout.note_attributes || []).filter(function (x) {
+          return names.indexOf(x && x.name) === -1;
+        });
+        payload.checkout.note_attributes = kept.concat(ours);
+        return JSON.stringify(payload);
+      }
+      if (SF_GQL.test(url) && body.indexOf('cartCreate') !== -1) {
+        var gq = JSON.parse(body);
+        var input = gq && gq.variables && gq.variables.input;
+        if (!input) return null; // inline query, no variables to extend
+        var attrs = noteAttributes(stored, snap).map(function (x) {
+          return { key: x.name, value: x.value };
+        });
+        var keys = attrs.map(function (x) { return x.key; });
+        var keptAttrs = (input.attributes || []).filter(function (x) {
+          return keys.indexOf(x && x.key) === -1;
+        });
+        input.attributes = keptAttrs.concat(attrs);
+        return JSON.stringify(gq);
+      }
+    } catch (e) {}
+    return null;
+  }
+
+  try {
+    var _fetch = window.fetch;
+    window.fetch = function (input, init) {
+      var args = arguments;
+      try {
+        // Buy-now injection covers the common fetch(url, {body}) form; a
+        // Request object with a stream body is left untouched.
+        var u = typeof input === 'string' ? input : (input && input.url) || '';
+        if (init && init.body) {
+          var rewritten = injectClickIds(u, init.body);
+          if (rewritten !== null) init.body = rewritten;
+        }
+      } catch (e) {}
+      return _fetch.apply(this, args).then(function (res) {
+        try {
+          var u2 = typeof args[0] === 'string' ? args[0] : (args[0] && args[0].url) || '';
+          if (CART_MUT.test(u2)) debouncedReconcile();
+        } catch (e) {}
+        return res; // always return the original response untouched
+      });
+    };
+  } catch (e) {}
+
+  try {
+    var _open = XMLHttpRequest.prototype.open;
+    var _send = XMLHttpRequest.prototype.send;
+    XMLHttpRequest.prototype.open = function (m, u) {
+      this.__ls_url = u;
+      return _open.apply(this, arguments);
+    };
+    XMLHttpRequest.prototype.send = function (body) {
+      var args = arguments;
+      try {
+        var rewritten = injectClickIds(String(this.__ls_url || ''), body);
+        if (rewritten !== null) args[0] = rewritten;
+      } catch (e) {}
+      try {
+        this.addEventListener('load', function () {
+          if (CART_MUT.test(this.__ls_url || '')) debouncedReconcile();
+        });
+      } catch (e) {}
+      return _send.apply(this, args);
+    };
+  } catch (e) {}
+
+  // On landing: prune touches from before the last purchase (a purchase closes
+  // the journey), capture from the URL, then reconcile immediately (writes now
+  // if a cart already exists; otherwise the mutation interceptor handles it
+  // later). Consent changes re-run the reconcile so the identifier snapshot
+  // appears when marketing consent is granted and is cleared when it is revoked.
+  function init() {
+    pruneBeforeLastPurchase();
+    captureFromUrl();
+    reconcile();
+    try {
+      document.addEventListener('visitorConsentCollected', debouncedReconcile);
+    } catch (e) {}
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', init);
+  } else {
+    init();
+  }
+
+  window.__leafSignalFbclid = {
+    getStored: getStoredFbclid,
+    getUrl: getUrlWithFbclid,
+  };
+})();

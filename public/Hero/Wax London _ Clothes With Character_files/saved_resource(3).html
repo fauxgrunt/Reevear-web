@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<!-- saved from url=(0113)https://waxlondon.com/web-pixels@1b3c7779w6e1f7d30p7ae783d3m9b5a05aa/custom/web-pixel-245498232@2/sandbox/modern/ -->
+<html><head><meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+    
+    <title>Wax London | Clothes With Character</title>
+    <script src="./pixel.js.download" async=""></script><script src="./s1b3c7779w6e1f7d30p7ae783d3m9b5a05aam.js.download"></script>
+
+    <script type="text/javascript">
+  (function(shopify) {shopify.extend('WebPixel::Render', function(api) {
+var analytics=api.analytics,browser=api.browser,init=api.init;
+!function(w,d){
+  if(!w.rdt){
+    var p=w.rdt=function(){
+      p.sendEvent ? p.sendEvent.apply(p,arguments) : p.callQueue.push(arguments)
+    };
+    p.callQueue=[];
+    var t=d.createElement("script");
+    t.src="https://www.redditstatic.com/ads/pixel.js?pixel_id=a2_iw9hf60689dp",t.async=!0;
+    var s=d.getElementsByTagName("script")[0];
+    s.parentNode.insertBefore(t,s)
+  }
+}(window,document);
+
+rdt('init', 'a2_iw9hf60689dp', {
+  optOut: false,
+  useDecimalCurrencyValues: true,
+  partner: "SHOPIFY_PIXEL",
+  partner_version: "0.0.1"
+});
+
+analytics.subscribe("page_viewed", function listen(event) {
+  rdt('track', 'PageVisit', {
+    conversionId: event.id,
+    email: (init.data.customer || {}).email,
+    phoneNumber: (init.data.customer || {}).phone,
+    externalId: (init.data.customer || {}).id || event.clientId,
+  });
+});
+
+analytics.subscribe("product_viewed", function listen(event) {
+  rdt('track', 'ViewContent', {
+    conversionId: event.id,
+    value: event.data.productVariant.price.amount,
+    products: [{
+      id:  event.data.productVariant.sku,
+      category:  event.data.productVariant.product.type,
+      name:  event.data.productVariant.product.title
+    }],
+    email: (init.data.customer || {}).email,
+    phoneNumber: (init.data.customer || {}).phone,
+    externalId: (init.data.customer || {}).id || event.clientId,
+  });
+});
+
+analytics.subscribe("product_added_to_cart", function listen(event) {
+  rdt('track', 'AddToCart', {
+    value: event.data.cartLine.cost.totalAmount.amount,
+    currency: event.data.cartLine.merchandise.price.currencyCode,
+    itemCount: event.data.cartLine.quantity,
+    conversionId: event.id,
+    products: [{
+      id:  event.data.cartLine.merchandise.sku,
+      category:  event.data.cartLine.merchandise.product.type,
+      name:  event.data.cartLine.merchandise.product.title
+    }],
+    email: (init.data.customer || {}).email,
+    phoneNumber: (init.data.customer || {}).phone,
+    externalId: (init.data.customer || {}).id || event.clientId,
+  });
+});
+
+analytics.subscribe("checkout_completed", function listen(event) {
+  rdt('track', 'Purchase', {
+    value: event.data.checkout.totalPrice.amount,
+    currency: event.data.checkout.currencyCode,
+    itemCount: event.data.checkout.lineItems.reduce(function clampItemsQuantity(total, item) { return total + item.quantity }, 0),
+    conversionId: event.id,
+    products: event.data.checkout.lineItems.map(function mapLineItem(item) {
+      return {
+        id: item.variant.sku,
+        category: item.variant.product.type,
+        name: item.title
+      };
+    }),
+    email: event.data.checkout.email || (init.data.customer || {}).email,
+    phoneNumber: event.data.checkout.phone || (init.data.customer || {}).phone,
+    externalId: (init.data.customer || {}).id || event.clientId,
+  });
+});
+
+analytics.subscribe("search_submitted", (event) => {
+  rdt("track", "Search", {
+    conversionId: event.id
+  });
+});
+});})(self.webPixelsManager.createShopifyExtend('245498232', 'custom'));
+
+</script>
+
+  </head>
+  <body>
+
+</body></html>

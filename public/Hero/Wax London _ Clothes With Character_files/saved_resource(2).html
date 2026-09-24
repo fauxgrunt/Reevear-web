@@ -1,0 +1,405 @@
+<!DOCTYPE html>
+<!-- saved from url=(0113)https://waxlondon.com/web-pixels@1b3c7779w6e1f7d30p7ae783d3m9b5a05aa/custom/web-pixel-241697144@3/sandbox/modern/ -->
+<html><head><meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+    
+    <title>Wax London | Clothes With Character</title>
+    <script src="./s1b3c7779w6e1f7d30p7ae783d3m9b5a05aam.js.download"></script>
+
+    <script type="text/javascript">
+  (function(shopify) {shopify.extend('WebPixel::Render', function(api) {
+var analytics=api.analytics,browser=api.browser,init=api.init;
+const purchaseManualGoalId = '100149732';      // Purchase Manual Goal ID
+const beginCheckoutManualGoalId = '100149733'; // Begin Checkout Manual Goal ID
+const DEBUG = true;                            // Set to false to disable logs in production
+const ERROR_PREFIX = '[Convert Goals]';        // Prefix for thrown errors
+const PROCESSED_ORDERS_KEY = 'convert_processed_orders'; // localStorage key for deduplication
+
+// ─────────────────────────────────────────────
+// LOGGING
+// ─────────────────────────────────────────────
+
+/**
+ * Centralized debug logging with consistent prefix
+ * @param {'log'|'warn'|'error'} level
+ * @param {string} message
+ * @param {...any} optionalParams
+ */
+function debugLog(level, message, ...optionalParams) {
+    if (!DEBUG) return;
+
+    const prefix = 'Saa: [Custom Web Pixel - Convert Goals]';
+    const logMessage = `${prefix} ${message}`;
+
+    switch (level) {
+        case 'warn':  console.warn(logMessage, ...optionalParams);  break;
+        case 'error': console.error(logMessage, ...optionalParams); break;
+        default:      console.log(logMessage, ...optionalParams);   break;
+    }
+}
+
+// ─────────────────────────────────────────────
+// DEDUPLICATION
+// ─────────────────────────────────────────────
+
+/**
+ * Check if an order has already been tracked
+ */
+async function isOrderProcessed(orderId) {
+    try {
+        const processedOrdersStr = await browser.localStorage.getItem(PROCESSED_ORDERS_KEY);
+        if (!processedOrdersStr) return false;
+
+        const processedOrders = JSON.parse(processedOrdersStr);
+        return processedOrders.includes(orderId);
+    } catch (error) {
+        debugLog('error', 'Error checking processed orders:', error);
+        return false; // Fail-safe: allow tracking to proceed
+    }
+}
+
+/**
+ * Mark an order as tracked in localStorage
+ */
+async function markOrderAsProcessed(orderId) {
+    try {
+        const processedOrdersStr = await browser.localStorage.getItem(PROCESSED_ORDERS_KEY);
+        let processedOrders = processedOrdersStr ? JSON.parse(processedOrdersStr) : [];
+
+        processedOrders.push(orderId);
+
+        // Keep only last 100 orders to prevent localStorage bloat
+        if (processedOrders.length > 100) {
+            processedOrders = processedOrders.slice(-100);
+        }
+
+        await browser.localStorage.setItem(PROCESSED_ORDERS_KEY, JSON.stringify(processedOrders));
+        debugLog('log', '✅ Order marked as processed:', orderId);
+    } catch (error) {
+        debugLog('error', 'Error marking order as processed:', error);
+    }
+}
+
+// ─────────────────────────────────────────────
+// CURRENCY CONVERSION
+// ─────────────────────────────────────────────
+
+/**
+ * Convert presentment currency amount back to base currency (GBP)
+ * Formula: presentment amount ÷ rate = GBP amount
+ * e.g., €117.69 EUR ÷ 1.17688 = £100.00 GBP
+ */
+function convertToBaseCurrency(amount, conversionRate, presentmentCurrency) {
+    if (!conversionRate || conversionRate === 1) {
+        debugLog('log', `💱 No conversion needed - customer paid in GBP: £${amount.toFixed(2)}`);
+        return amount;
+    }
+
+    const gbpAmount = amount / conversionRate;
+    debugLog('log', `💱 Currency conversion: ${amount.toFixed(2)} ${presentmentCurrency} ÷ ${conversionRate} = £${gbpAmount.toFixed(2)} GBP`);
+    return gbpAmount;
+}
+
+// ─────────────────────────────────────────────
+// CONVERT TRACKING
+// ─────────────────────────────────────────────
+
+/**
+ * Posts transaction data to Convert with revenue in base currency (GBP)
+ */
+function postTransaction(convert_attributes_str, purchase_event, purchaseManualGoalId) {
+    debugLog('log', 'Starting postTransaction function.');
+
+    return new Promise((resolve, reject) => {
+        try {
+            const convert_attributes = JSON.parse(convert_attributes_str);
+            debugLog('log', 'Parsed convert_attributes:', convert_attributes);
+
+            if (!convert_attributes) {
+                throw new Error(`${ERROR_PREFIX} Convert attributes are null or undefined`);
+            }
+
+            if (!purchase_event || !purchase_event.data || !purchase_event.data.checkout) {
+                throw new Error(`${ERROR_PREFIX} Invalid purchase_event structure`);
+            }
+
+            debugLog('log', 'Building transaction POST data.');
+
+            // Extract raw amount (in presentment currency)
+            const rawAmount = purchase_event.data.checkout.totalPrice?.amount;
+            if (!rawAmount) {
+                debugLog('warn', 'No totalPrice.amount found, defaulting to 0');
+            }
+
+            const presentmentAmount = parseFloat(rawAmount || 0);
+
+            // ✅ Fix 3: Always parseFloat on conversionRate (stored as number but be safe)
+            const conversionRate = parseFloat(convert_attributes.conversionRate) || 1;
+            const presentmentCurrency = convert_attributes.presentmentCurrency || 'GBP';
+
+            debugLog('log', `🔍 Raw amount: ${presentmentAmount} ${presentmentCurrency}`);
+            debugLog('log', `🔍 Conversion rate (GBP → ${presentmentCurrency}): ${conversionRate}`);
+
+            // Convert presentment amount back to base currency (GBP) by dividing
+            const transactionAmount = convertToBaseCurrency(presentmentAmount, conversionRate, presentmentCurrency);
+
+            debugLog('log', `🔍 Final amount sent to Convert: £${transactionAmount.toFixed(2)} GBP`);
+
+            // Extract order ID safely
+            const orderId = purchase_event.data.checkout.order?.id ||
+                           purchase_event.data.checkout.token ||
+                           purchase_event.id ||
+                           'unknown';
+            debugLog('log', 'Order ID:', orderId);
+
+            // Count line items
+            const itemCount = purchase_event.data.checkout.lineItems?.length || 0;
+            debugLog('log', 'Line items count:', itemCount);
+
+            // Build payload
+            const post = {
+                'cid': convert_attributes.cid,
+                'pid': convert_attributes.pid,
+                'seg': convert_attributes.defaultSegments,
+                's': 'shopify',
+                'vid': convert_attributes.vid,
+                'tid': orderId,
+                'ev': [{
+                    'evt': 'tr',
+                    'goals': [purchaseManualGoalId],
+                    'exps': convert_attributes.exps,
+                    'vars': convert_attributes.vars,
+                    'r': parseFloat(transactionAmount.toFixed(2)), // GBP, 2 decimal places
+                    'prc': itemCount
+                }]
+            };
+
+            const data = JSON.stringify(post);
+            const beaconUrl = `https://${convert_attributes.pid}.metrics.convertexperiments.com/track`;
+
+            debugLog('log', 'Sending transaction to:', beaconUrl);
+            debugLog('log', 'Transaction payload:', post);
+
+            fetch(beaconUrl, {
+                method: 'POST',
+                body: data,
+                headers: { 'Content-Type': 'application/json' },
+                keepalive: true
+            })
+            .then(response => {
+                if (response.ok) {
+                    debugLog('log', '✅ Transaction sent successfully. Status:', response.status);
+                    resolve(response);
+                } else {
+                    debugLog('error', 'Transaction request failed. Status:', response.status);
+                    resolve(response); // Still resolve - data was sent
+                }
+            })
+            .catch(error => {
+                debugLog('error', 'Transaction fetch error:', error.message);
+                debugLog('error', 'Full error:', error);
+                reject(error);
+            });
+
+        } catch (error) {
+            debugLog('error', 'Error in postTransaction:', error.message);
+            debugLog('error', 'Full error details:', error);
+            reject(error);
+        }
+    });
+}
+
+/**
+ * Posts goal conversion hit to Convert
+ */
+function postConversion(convert_attributes_str, goalIds) {
+    debugLog('log', 'Starting postConversion function.');
+    debugLog('log', 'Goal IDs:', goalIds);
+
+    return new Promise((resolve, reject) => {
+        try {
+            const convert_attributes = JSON.parse(convert_attributes_str);
+            debugLog('log', 'Parsed convert_attributes:', convert_attributes);
+
+            if (!convert_attributes) {
+                throw new Error(`${ERROR_PREFIX} Convert attributes are null or undefined`);
+            }
+
+            if (!goalIds || !Array.isArray(goalIds) || goalIds.length === 0) {
+                throw new Error(`${ERROR_PREFIX} Invalid goalIds - must be a non-empty array`);
+            }
+
+            debugLog('log', 'Building goal conversion POST data.');
+
+            const post = {
+                'cid': convert_attributes.cid,
+                'pid': convert_attributes.pid,
+                'seg': convert_attributes.defaultSegments,
+                's': 'shopify',
+                'vid': convert_attributes.vid,
+                'ev': [{
+                    'evt': 'hitGoal',
+                    'goals': goalIds,
+                    'exps': convert_attributes.exps,
+                    'vars': convert_attributes.vars
+                }]
+            };
+
+            const data = JSON.stringify(post);
+            const beaconUrl = `https://${convert_attributes.pid}.metrics.convertexperiments.com/track`;
+
+            debugLog('log', 'Sending goal conversion to:', beaconUrl);
+            debugLog('log', 'Goal conversion payload:', post);
+
+            fetch(beaconUrl, {
+                method: 'POST',
+                body: data,
+                headers: { 'Content-Type': 'application/json' },
+                keepalive: true
+            })
+            .then(response => {
+                if (response.ok) {
+                    debugLog('log', '✅ Goal conversion sent successfully. Status:', response.status);
+                    resolve(response);
+                } else {
+                    debugLog('error', 'Goal conversion request failed. Status:', response.status);
+                    resolve(response); // Still resolve - data was sent
+                }
+            })
+            .catch(error => {
+                debugLog('error', 'Goal conversion fetch error:', error.message);
+                debugLog('error', 'Full error:', error);
+                reject(error);
+            });
+
+        } catch (error) {
+            debugLog('error', 'Error in postConversion:', error.message);
+            debugLog('error', 'Full error details:', error);
+            reject(error);
+        }
+    });
+}
+
+// ─────────────────────────────────────────────
+// EVENT SUBSCRIPTIONS
+// ─────────────────────────────────────────────
+
+/**
+ * Subscribe to checkout_started → fire Begin Checkout goal
+ */
+analytics.subscribe("checkout_started", async (event) => {
+    debugLog('log', 'checkout_started event received.');
+    debugLog('log', 'Event data:', event);
+
+    try {
+        debugLog('log', 'Retrieving convert_attributes from localStorage...');
+        const convert_attributes_str = await browser.localStorage.getItem('convert_attributes');
+
+        if (!convert_attributes_str) {
+            debugLog('warn', 'No convert_attributes found in localStorage. Tracking skipped.');
+            debugLog('warn', 'Expected if user did not come from a Convert experiment.');
+            return;
+        }
+
+        debugLog('log', '✅ convert_attributes retrieved successfully.');
+
+        debugLog('log', 'Sending Begin Checkout goal conversion...');
+        await postConversion(convert_attributes_str, [beginCheckoutManualGoalId]);
+        debugLog('log', '✅ Begin Checkout goal conversion completed.');
+
+        debugLog('log', '✅ All tracking completed successfully for checkout_started.');
+
+    } catch (error) {
+        debugLog('error', 'Error in checkout_started handler:', error.message);
+        debugLog('error', 'Full error details:', error);
+        debugLog('error', 'Event that caused error:', event);
+        // Don't throw - must not break checkout flow
+    }
+});
+
+/**
+ * Subscribe to checkout_completed → fire Purchase goal + transaction
+ * Uses localStorage deduplication to prevent duplicate tracking
+ * on page refresh or Order Status page revisits
+ */
+analytics.subscribe("checkout_completed", async (event) => {
+    debugLog('log', 'checkout_completed event received.');
+    debugLog('log', 'Event data:', event);
+
+    try {
+        // Log page context for debugging
+        const pageUrl   = event.context?.document?.location?.href     || 'unknown';
+        const pageTitle = event.context?.document?.title              || 'unknown';
+        const pathname  = event.context?.document?.location?.pathname || '';
+        debugLog('log', '📄 Page URL:', pageUrl);
+        debugLog('log', '📄 Page title:', pageTitle);
+        debugLog('log', '📄 Page pathname:', pathname);
+
+        // ✅ Fix 4: Validate orderId - fail early if not found
+        const orderId = event.data.checkout.order?.id ||
+                       event.data.checkout.token ||
+                       event.id;
+
+        if (!orderId) {
+            debugLog('error', `${ERROR_PREFIX} Could not extract order ID from event. Tracking skipped.`);
+            return;
+        }
+
+        debugLog('log', 'Order ID:', orderId);
+
+        // Deduplication check - prevent tracking on refresh/revisit
+        const alreadyProcessed = await isOrderProcessed(orderId);
+        if (alreadyProcessed) {
+            debugLog('warn', `⚠️ Order ${orderId} already processed. Skipping duplicate tracking.`);
+            debugLog('warn', `⚠️ Triggered from: ${pageTitle}`);
+            return;
+        }
+
+        debugLog('log', `✅ First time processing order: ${orderId}`);
+
+        // Retrieve convert attributes
+        debugLog('log', 'Retrieving convert_attributes from localStorage...');
+        const convert_attributes_str = await browser.localStorage.getItem('convert_attributes');
+
+        if (!convert_attributes_str) {
+            debugLog('warn', 'No convert_attributes found in localStorage. Tracking skipped.');
+            debugLog('warn', 'Expected if user did not come from a Convert experiment.');
+            return;
+        }
+
+        debugLog('log', '✅ convert_attributes retrieved successfully.');
+
+        // Fire Purchase goal
+        debugLog('log', 'Sending Purchase goal conversion...');
+        await postConversion(convert_attributes_str, [purchaseManualGoalId]);
+        debugLog('log', '✅ Purchase goal conversion completed.');
+
+        // ✅ Fix 5: Mark order as processed AFTER goal conversion succeeds
+        // but BEFORE transaction - prevents duplicate goal hits even if transaction fails
+        await markOrderAsProcessed(orderId);
+        debugLog('log', `✅ Order ${orderId} marked as processed.`);
+
+        // Fire transaction with revenue (converted to GBP)
+        debugLog('log', 'Sending transaction with revenue...');
+        await postTransaction(convert_attributes_str, event, purchaseManualGoalId);
+        debugLog('log', '✅ Transaction completed.');
+
+        debugLog('log', `✅ All tracking completed successfully for order: ${orderId}`);
+
+    } catch (error) {
+        debugLog('error', 'Error in checkout_completed handler:', error.message);
+        debugLog('error', 'Full error details:', error);
+        debugLog('error', 'Event that caused error:', event);
+        // Don't throw - must not break checkout flow
+    }
+});
+
+debugLog('log', '🚀 Customer events pixel loaded successfully.');
+
+});})(self.webPixelsManager.createShopifyExtend('241697144', 'custom'));
+
+</script>
+
+  </head>
+  <body>
+
+</body></html>

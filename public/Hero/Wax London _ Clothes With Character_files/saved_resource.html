@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<!-- saved from url=(0114)https://waxlondon.com/web-pixels@1b3c7779w6e1f7d30p7ae783d3m9b5a05aa/custom/web-pixel-240746872@10/sandbox/modern/ -->
+<html><head><meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+    
+    <title>Wax London | Clothes With Character</title>
+    <script src="./bat.js.download" async=""></script><script src="./s1b3c7779w6e1f7d30p7ae783d3m9b5a05aam.js.download"></script>
+
+    <script type="text/javascript">
+  (function(shopify) {shopify.extend('WebPixel::Render', function(api) {
+var analytics=api.analytics,browser=api.browser,init=api.init;
+const tagID = '52004102'; // Insert UET Tag ID here
+let customerPrivacyStatus = init.customerPrivacy;
+
+// Set default as denied immediately
+window.uetq = window.uetq || [];
+window.uetq.push('consent', 'default', {
+  'ad_storage': 'denied'
+});
+
+// Returning visitors — only update if consent status is already known
+if (customerPrivacyStatus && customerPrivacyStatus.marketingAllowed != undefined) {
+  window.uetq.push('consent', 'update', {
+    'ad_storage': customerPrivacyStatus.marketingAllowed ? 'granted' : 'denied'
+  });
+}
+
+// New visitors — fires when user interacts with the consent banner
+api.customerPrivacy.subscribe('visitorConsentCollected', (event) => {
+  let customerPrivacy = event.customerPrivacy;
+  window.uetq.push('consent', 'update', {
+    'ad_storage': customerPrivacy.marketingAllowed ? 'granted' : 'denied'
+  });
+});
+
+// Page View
+  // Load UET Tag
+  (function(w,d,t,r,u){var f,n,i;w[u]=w[u]||[],f=function(){var o={ti:tagID, enableAutoSpaTracking: true};o.q=w[u],w[u]=new UET(o),w[u].push("pageLoad")},n=d.createElement(t),n.src=r,n.async=1,n.onload=n.onreadystatechange=function(){var s=this.readyState;s&&s!=="loaded"&&s!=="complete"||(f(),n.onload=n.onreadystatechange=null)},i=d.getElementsByTagName(t)[0],i.parentNode.insertBefore(n,i)})(window,document,"script","//bat.bing.com/bat.js","uetq");
+
+
+// View Item Event
+analytics.subscribe("product_viewed", function(event){
+  var totalValue = event.data.productVariant.price.amount;
+  var currency = event.data.productVariant.price.currencyCode;
+  var productId = event.data.productVariant.product.id.toString();
+
+  window.uetq = window.uetq || [];
+  window.uetq.push('event', 'view_item',
+                   {"revenue_value": totalValue,
+                    "currency": currency,
+                    "ecomm_prodid": [productId],
+                    "ecomm_pagetype": "product"}
+                  );
+});
+
+
+
+analytics.subscribe("product_added_to_cart", function(event) {
+  var cartLine = event.data.cartLine;
+
+  var totalValue = parseFloat(cartLine.cost.totalAmount.amount);
+  var currency = cartLine.cost.totalAmount.currencyCode;
+  var productId = cartLine.merchandise.product.id.toString();
+  var quantity = cartLine.quantity;
+  var price = parseFloat(cartLine.merchandise.price.amount);
+
+  window.uetq = window.uetq || [];
+  window.uetq.push('event', 'add_to_cart', {
+    'ecomm_prodid': [productId],
+    'ecomm_pagetype': 'product',
+    'ecomm_totalvalue': totalValue,
+    'revenue_value': totalValue,
+    'currency': currency,
+    'items': [
+      {
+        'id': productId,
+        'quantity': quantity,
+        'price': price
+      }
+    ]
+  });
+});
+
+
+// Begin Checkout
+analytics.subscribe("checkout_started", function(event) {
+  var checkout = event.data.checkout;
+
+  var totalValue = parseFloat(checkout.totalPrice.amount);
+  var currency = checkout.totalPrice.currencyCode;
+
+  // Product IDs array
+  var productIds = checkout.lineItems.map(function(item) {
+    return item.variant.product.id.toString();
+  });
+
+  // Items array
+  var items = checkout.lineItems.map(function(item) {
+    return {
+      id: item.variant.product.id.toString(),
+      quantity: item.quantity,
+      price: parseFloat(item.variant.price.amount)
+    };
+  });
+
+  window.uetq = window.uetq || [];
+  window.uetq.push('event', 'initiate_checkout', {
+    'ecomm_prodid': productIds,
+    'ecomm_pagetype': 'cart',
+    'ecomm_totalvalue': totalValue,
+    'revenue_value': totalValue,
+    'currency': currency,
+    'items': items
+  });
+});
+
+
+
+// Purchase Event
+analytics.subscribe("checkout_completed", function (event) {
+  var checkout = event.data.checkout;
+  
+  // Customer data for PII matching
+  var customerData = {};
+  customerData.em = checkout.email.toLowerCase();
+  if (checkout.billingAddress.phone) {
+    customerData.ph = checkout.billingAddress.phone;
+  }
+
+  // Order values
+  var totalValue = parseFloat(checkout.totalPrice.amount);
+  var currency = checkout.totalPrice.currencyCode;
+  var transactionId = checkout.order.id.toString();
+
+  // Product IDs array (for ecomm_prodid)
+  var productIds = checkout.lineItems.map(function(item) {
+    return item.variant.product.id.toString();
+  });
+
+  // Items array (for items field)
+  var items = checkout.lineItems.map(function(item) {
+    return {
+      id: item.variant.product.id.toString(),
+      quantity: item.quantity,
+      price: parseFloat(item.variant.price.amount)
+    };
+  });
+
+  window.uetq = window.uetq || [];
+  window.uetq.push('set', { 'pid': customerData });
+  window.uetq.push('event', 'purchase', {
+    'transaction_id': transactionId,
+    'ecomm_prodid': productIds,
+    'ecomm_pagetype': 'purchase',
+    'ecomm_totalvalue': totalValue,
+    'revenue_value': totalValue,
+    'currency': currency,
+    'items': items
+  });
+});
+
+});})(self.webPixelsManager.createShopifyExtend('240746872', 'custom'));
+
+</script>
+
+  <script src="./52004102.js.download" type="text/javascript" async="" data-ueto="ueto_cbfa47eafe"></script></head>
+  <body>
+
+<div id="batBeacon846870552671" style="width: 0px; height: 0px; display: none; visibility: hidden;"><img id="batBeacon755764398732" width="0" height="0" alt="" src="./0" style="width: 0px; height: 0px; display: none; visibility: hidden;"></div></body></html>

@@ -1,0 +1,33 @@
+export const site = {
+  brand: "Reevear",
+  companyName: "[REGISTERED COMPANY NAME]",
+  registeredAddress: "[REGISTERED BUSINESS ADDRESS]",
+  companyNumber: "[COMPANY NUMBER]",
+  vatNumber: "[VAT NUMBER IF APPLICABLE]",
+  contactEmail: "[CONTACT EMAIL]",
+  returnsAddress: "[RETURNS ADDRESS]",
+  icoNumber: "[ICO REGISTRATION NUMBER IF APPLICABLE]",
+  governingLaw: "[GOVERNING LAW AND JURISDICTION TO BE CONFIRMED]",
+  currency: "GBP",
+  instagram: "https://www.instagram.com/reevear",
+  tiktok: "https://www.tiktok.com/@reevear",
+} as const;
+
+export const placeholders = {
+  deliveryMethod: "[DELIVERY METHOD TO BE CONFIRMED]",
+  deliveryTime: "[DELIVERY TIME TO BE CONFIRMED]",
+  deliveryPrice: "[DELIVERY PRICE TO BE CONFIRMED]",
+  internationalDelivery: "[INTERNATIONAL DELIVERY TO BE CONFIRMED]",
+  customs: "[CUSTOMS AND IMPORT CHARGES TO BE CONFIRMED]",
+  processing: "[ORDER PROCESSING TO BE CONFIRMED]",
+  tracking: "[TRACKING TO BE CONFIRMED]",
+  failedDelivery: "[FAILED DELIVERY PROCESS TO BE CONFIRMED]",
+  returnMethod: "[HOW TO RETURN GOODS TO BE CONFIRMED]",
+  returnFee: "[RETURN SHIPPING COST TO BE CONFIRMED]",
+  commercialReturns: "[COMMERCIAL RETURNS POLICY TO BE CONFIRMED]",
+  responseTime: "[RESPONSE TIME TO BE CONFIRMED]",
+  retention: "[RETENTION PERIOD TO BE CONFIRMED]",
+  lawfulBasis: "[LAWFUL BASIS TO BE CONFIRMED]",
+  sizeData: "[SIZE DATA TO BE ADDED]",
+  brandStory: "[BRAND STORY TO BE ADDED]",
+} as const;
