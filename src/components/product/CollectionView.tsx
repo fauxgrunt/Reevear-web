@@ -264,7 +264,9 @@ export function CollectionView({
               <button
                 key={id}
                 type="button"
-                className={`collection-facet${facet === id ? " is-open" : ""}${facetValue[id] ? " is-set" : ""}`}
+                className={`collection-facet${facet === id ? " is-open" : ""}${
+                  (id === "filters" ? fit || priceBand : facetValue[id]) ? " is-set" : ""
+                }`}
                 aria-expanded={facet === id}
                 onClick={() => openFacet(id)}
               >
