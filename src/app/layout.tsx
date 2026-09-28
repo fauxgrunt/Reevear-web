@@ -1,4 +1,5 @@
 import { CartProvider } from "@/components/cart/CartProvider";
+import { PageTransition } from "@/components/nav/PageTransition";
 import type { Metadata } from "next";
 import { Cormorant_Garamond, Outfit, Syne } from "next/font/google";
 import "./globals.css";
@@ -40,7 +41,9 @@ export default function RootLayout({
       className={`${outfit.variable} ${syne.variable} ${cormorant.variable} h-full`}
     >
       <body className="min-h-full bg-ink text-mist antialiased">
-        <CartProvider>{children}</CartProvider>
+        <CartProvider>
+          <PageTransition>{children}</PageTransition>
+        </CartProvider>
       </body>
     </html>
   );

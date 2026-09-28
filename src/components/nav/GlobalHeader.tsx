@@ -131,6 +131,13 @@ export function GlobalHeader() {
   }, [menuOpen, searchOpen, bagOpen]);
 
   useEffect(() => {
+    const root = shellRef.current?.closest(".home-root");
+    if (!root) return;
+    root.classList.toggle("is-menu-open", menuOpen);
+    return () => root.classList.remove("is-menu-open");
+  }, [menuOpen]);
+
+  useEffect(() => {
     if (menuOpen) closeRef.current?.focus();
   }, [menuOpen]);
 

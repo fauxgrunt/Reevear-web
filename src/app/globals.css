@@ -342,8 +342,13 @@ body {
   }
 }
 
-.home-root > main {
-  animation: home-page-in 0.85s var(--home-ease) both;
+.page-transition {
+  min-height: 100svh;
+  background: #f3f1eb;
+}
+
+.page-stage {
+  min-height: 100svh;
 }
 
 html:has(.home-root),
@@ -1707,6 +1712,22 @@ html:has(.home-root) body {
     top: var(--home-chrome);
     z-index: 1;
   }
+
+  .home-root main {
+    transition: filter 0.45s ease;
+  }
+
+  .home-root.is-menu-open main {
+    filter: blur(64px);
+  }
+}
+
+@media (max-width: 1023px) and (prefers-reduced-motion: reduce) {
+  .home-root main,
+  .home-root.is-menu-open main {
+    filter: none;
+    transition: none;
+  }
 }
 
 @media (min-width: 1024px) {
@@ -1963,15 +1984,6 @@ html:has(.home-root) body {
     left: auto;
     width: min(28rem, 100%);
     border-left: 1px solid var(--home-line);
-  }
-}
-
-@keyframes home-page-in {
-  from {
-    opacity: 0;
-  }
-  to {
-    opacity: 1;
   }
 }
 
