@@ -1,10 +1,18 @@
 import { ProductMedia } from "@/components/product/ProductMedia";
 import type { ShopProduct } from "@/data/products";
 
-export function ProductGallery({ product }: { product: ShopProduct }) {
-  const slots = product.media.gallery?.length
-    ? product.media.gallery
-    : [product.media.primary, undefined, undefined];
+export function ProductGallery({
+  product,
+  image,
+}: {
+  product: ShopProduct;
+  image?: string;
+}) {
+  const slots = image
+    ? [image]
+    : product.media.gallery?.length
+      ? product.media.gallery
+      : [product.media.primary, undefined, undefined];
 
   return (
     <div className="flex flex-col gap-2 md:gap-3">

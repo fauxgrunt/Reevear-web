@@ -26,8 +26,10 @@ const sortOptions = [
 ] as const;
 
 const categoryLabels: Record<string, string> = {
-  shirts: "Shirts",
+  "t-shirts": "T-Shirts",
   hoodies: "Hoodies",
+  sweatshirts: "Sweatshirts",
+  shirts: "Shirts",
   trousers: "Trousers",
   jeans: "Jeans",
   jackets: "Jackets",
@@ -43,21 +45,26 @@ function categoryLabel(value: string) {
   return categoryLabels[value] ?? value;
 }
 
+type Facet = "filters" | "colour" | "size" | "category";
+type Columns = 2 | 3 | 4;
+
 export function CollectionView({
   title,
   description,
   products,
 }: CollectionViewProps) {
-  const [filterOpen, setFilterOpen] = useState(false);
+  const [facet, setFacet] = useState<Facet | null>(null);
   const [sortOpen, setSortOpen] = useState(false);
+  const [stuck, setStuck] = useState(false);
   const [sort, setSort] = useState<SortKey>("featured");
+  const [columns, setColumns] = useState<Columns>(4);
   const [size, setSize] = useState<string | null>(null);
   const [colour, setColour] = useState<string | null>(null);
   const [fit, setFit] = useState<string | null>(null);
   const [category, setCategory] = useState<string | null>(null);
   const [priceBand, setPriceBand] = useState<string | null>(null);
   const sortRef = useRef<HTMLDivElement>(null);
-  const closeFilterRef = useRef<HTMLButtonElement>(null);
+  const toolbarRef = useRef<HTMLDivElement>(null);
 
   const sizes = useMemo(() => {
     const values = new Set<string>();
@@ -69,10 +76,21 @@ export function CollectionView({
 
   const colours = useMemo(() => {
     const values = new Set<string>();
-    products.forEach((product) =>
-      product.colourVariants.forEach((entry) => values.add(entry.name)),
-    );
+    products.forEach((product) => {
+      if (product.group) values.add(product.colour);
+      else product.colourVariants.forEach((entry) => values.add(entry.name));
+    });
     return [...values];
+  }, [products]);
+
+  const colourHex = useMemo(() => {
+    const values = new Map<string, string>();
+    products.forEach((product) => {
+      product.colourVariants.forEach((entry) => {
+        if (!values.has(entry.name)) values.set(entry.name, entry.hex);
+      });
+    });
+    return values;
   }, [products]);
 
   const fits = useMemo(() => {
@@ -106,7 +124,9 @@ export function CollectionView({
     }
     if (colour) {
       next = next.filter((product) =>
-        product.colourVariants.some((entry) => entry.name === colour),
+        product.group
+          ? product.colour === colour
+          : product.colourVariants.some((entry) => entry.name === colour),
       );
     }
     if (fit) {
@@ -140,7 +160,7 @@ export function CollectionView({
   };
 
   const closePanels = () => {
-    setFilterOpen(false);
+    setFacet(null);
     setSortOpen(false);
   };
 
@@ -153,24 +173,32 @@ export function CollectionView({
   }, []);
 
   useEffect(() => {
+    const root = document.querySelector(".home-root");
+    const onScroll = () => {
+      const node = toolbarRef.current;
+      if (!node) return;
+      const raw = root ? getComputedStyle(root).getPropertyValue("--home-chrome") : "88";
+      const offset = Number.parseFloat(raw) || 88;
+      setStuck(node.getBoundingClientRect().top <= offset + 1);
+    };
+    onScroll();
+    window.addEventListener("scroll", onScroll, { passive: true });
+    window.addEventListener("resize", onScroll);
+    return () => {
+      window.removeEventListener("scroll", onScroll);
+      window.removeEventListener("resize", onScroll);
+    };
+  }, []);
+
+  useEffect(() => {
     const onPointerDown = (event: PointerEvent) => {
-      if (!sortOpen) return;
-      if (sortRef.current?.contains(event.target as Node)) return;
-      setSortOpen(false);
+      if (!sortOpen && !facet) return;
+      if (toolbarRef.current?.contains(event.target as Node)) return;
+      closePanels();
     };
     window.addEventListener("pointerdown", onPointerDown);
     return () => window.removeEventListener("pointerdown", onPointerDown);
-  }, [sortOpen]);
-
-  useEffect(() => {
-    const mobile = window.matchMedia("(max-width: 767px)");
-    const lock = filterOpen && mobile.matches;
-    document.body.style.overflow = lock ? "hidden" : "";
-    if (lock) closeFilterRef.current?.focus();
-    return () => {
-      document.body.style.overflow = "";
-    };
-  }, [filterOpen]);
+  }, [facet, sortOpen]);
 
   const toggleValue = (
     current: string | null,
@@ -180,215 +208,197 @@ export function CollectionView({
     setValue(current === next ? null : next);
   };
 
+  const openFacet = (next: Facet) => {
+    setSortOpen(false);
+    setFacet((current) => (current === next ? null : next));
+  };
+
+  const facetOptions: Record<Exclude<Facet, "filters">, { value: string; label: string; hex?: string }[]> = {
+    category: categories.map((value) => ({ value, label: categoryLabel(value) })),
+    colour: colours.map((value) => ({
+      value,
+      label: value,
+      hex: colourHex.get(value),
+    })),
+    size: sizes.map((value) => ({ value, label: value })),
+  };
+
+  const facetValue: Record<Exclude<Facet, "filters">, string | null> = {
+    category,
+    colour,
+    size,
+  };
+
+  const setFacetValue: Record<Exclude<Facet, "filters">, (value: string | null) => void> = {
+    category: setCategory,
+    colour: setColour,
+    size: setSize,
+  };
+
+  const showFilters = fits.length > 1 || priceBands.length > 1;
+  const facets = (
+    [
+      ["filters", "Filters", showFilters],
+      ["colour", "Colour", colours.length > 1],
+      ["size", "Size", sizes.length > 0],
+      ["category", "Type", categories.length > 1],
+    ] as const
+  ).filter((entry) => entry[2]);
+
   return (
     <div className="collection-page">
       <header className="collection-intro">
-        <h1>{title}</h1>
+        <div className="collection-intro-name">
+          <h1>{title}</h1>
+        </div>
         {description ? <p>{description}</p> : null}
       </header>
 
-      <div className="collection-toolbar">
-        <div className="collection-toolbar-actions">
-          <button
-            type="button"
-            className="collection-control"
-            aria-expanded={filterOpen}
-            aria-controls="collection-filters"
-            onClick={() => {
-              setFilterOpen((open) => !open);
-              setSortOpen(false);
-            }}
-          >
-            Filters
-            {activeCount > 0 ? <span>({activeCount})</span> : null}
-          </button>
+      <div
+        className={`collection-tools${facet || sortOpen ? " is-open" : ""}${stuck ? " is-stuck" : ""}`}
+        ref={toolbarRef}
+      >
+        <div className="collection-toolbar">
+          <div className="collection-facets">
+            {facets.map(([id, label]) => (
+              <button
+                key={id}
+                type="button"
+                className={`collection-facet${facet === id ? " is-open" : ""}${facetValue[id] ? " is-set" : ""}`}
+                aria-expanded={facet === id}
+                onClick={() => openFacet(id)}
+              >
+                {label}
+              </button>
+            ))}
+            {activeCount > 0 ? (
+              <button type="button" className="collection-clear" onClick={clearFilters}>
+                Clear
+              </button>
+            ) : null}
+          </div>
 
-          <div className="collection-sort" ref={sortRef}>
-            <button
-              type="button"
-              className="collection-control"
-              aria-expanded={sortOpen}
-              aria-haspopup="listbox"
-              onClick={() => {
-                setSortOpen((open) => !open);
-                setFilterOpen(false);
-              }}
-            >
-              Sort
-            </button>
-            <ul
-              className={`collection-sort-menu${sortOpen ? " is-open" : ""}`}
-              role="listbox"
-              aria-hidden={!sortOpen}
-              aria-label="Sort products"
-            >
-              {sortOptions.map(([value, label]) => (
-                <li key={value}>
-                  <button
-                    type="button"
-                    role="option"
-                    aria-selected={sort === value}
-                    className={sort === value ? "is-active" : ""}
-                    tabIndex={sortOpen ? 0 : -1}
-                    onClick={() => {
-                      setSort(value);
-                      setSortOpen(false);
-                    }}
-                  >
-                    {label}
-                  </button>
-                </li>
+          <div className="collection-toolbar-end">
+            <div className="collection-columns" role="group" aria-label="Columns">
+              {([2, 3, 4] as const).map((count) => (
+                <button
+                  key={count}
+                  type="button"
+                  className={columns === count ? "is-active" : ""}
+                  aria-label={`${count} columns`}
+                  aria-pressed={columns === count}
+                  onClick={() => setColumns(count)}
+                >
+                  {Array.from({ length: count }, (_, index) => (
+                    <span key={index} />
+                  ))}
+                </button>
               ))}
-            </ul>
+            </div>
+
+            <div className="collection-sort" ref={sortRef}>
+              <button
+                type="button"
+                className={`collection-facet${sortOpen ? " is-open" : ""}`}
+                aria-expanded={sortOpen}
+                aria-haspopup="listbox"
+                onClick={() => {
+                  setSortOpen((open) => !open);
+                  setFacet(null);
+                }}
+              >
+                Sort
+              </button>
+            </div>
+            {facet || sortOpen ? (
+              <button type="button" className="collection-close" aria-label="Close" onClick={closePanels}>
+                <span />
+                <span />
+              </button>
+            ) : null}
           </div>
         </div>
 
-        <p className="collection-count">
-          {filtered.length} {filtered.length === 1 ? "piece" : "pieces"}
-        </p>
-      </div>
-
-      <div
-        id="collection-filters"
-        className={`collection-filters${filterOpen ? " is-open" : ""}`}
-        aria-hidden={!filterOpen}
-      >
-        <button
-          type="button"
-          className="collection-filters-backdrop"
-          tabIndex={filterOpen ? 0 : -1}
-          aria-label="Close filters"
-          onClick={() => setFilterOpen(false)}
-        />
-        <div className="collection-filters-panel">
-          <div className="collection-filters-inner">
-          <div className="collection-filters-top">
-            <p>Filters</p>
-            <button
-              ref={closeFilterRef}
-              type="button"
-              className="collection-control"
-              aria-label="Close filters"
-              tabIndex={filterOpen ? 0 : -1}
-              onClick={() => setFilterOpen(false)}
-            >
-              Close
-            </button>
-          </div>
-
-          <div className="collection-filter-grid">
-            {categories.length > 1 ? (
-              <fieldset>
-                <legend>Category</legend>
-                <div className="collection-filter-options">
-                  {categories.map((value) => (
-                    <button
-                      key={value}
-                      type="button"
-                      className={`shop-chip${category === value ? " is-active" : ""}`}
-                      tabIndex={filterOpen ? 0 : -1}
-                      onClick={() => toggleValue(category, value, setCategory)}
-                    >
-                      {categoryLabel(value)}
-                    </button>
-                  ))}
-                </div>
-              </fieldset>
-            ) : null}
-
-            {sizes.length > 0 ? (
-              <fieldset>
-                <legend>Size</legend>
-                <div className="collection-filter-options">
-                  {sizes.map((value) => (
-                    <button
-                      key={value}
-                      type="button"
-                      className={`shop-chip${size === value ? " is-active" : ""}`}
-                      tabIndex={filterOpen ? 0 : -1}
-                      onClick={() => toggleValue(size, value, setSize)}
-                    >
-                      {value}
-                    </button>
-                  ))}
-                </div>
-              </fieldset>
-            ) : null}
-
-            {colours.length > 1 ? (
-              <fieldset>
-                <legend>Colour</legend>
-                <div className="collection-filter-options">
-                  {colours.map((value) => (
-                    <button
-                      key={value}
-                      type="button"
-                      className={`shop-chip${colour === value ? " is-active" : ""}`}
-                      tabIndex={filterOpen ? 0 : -1}
-                      onClick={() => toggleValue(colour, value, setColour)}
-                    >
-                      {value}
-                    </button>
-                  ))}
-                </div>
-              </fieldset>
-            ) : null}
-
-            {priceBands.length > 1 ? (
-              <fieldset>
-                <legend>Price</legend>
-                <div className="collection-filter-options">
-                  {priceBands.map((band) => (
-                    <button
-                      key={band.id}
-                      type="button"
-                      className={`shop-chip${priceBand === band.id ? " is-active" : ""}`}
-                      tabIndex={filterOpen ? 0 : -1}
-                      onClick={() => toggleValue(priceBand, band.id, setPriceBand)}
-                    >
-                      {band.label}
-                    </button>
-                  ))}
-                </div>
-              </fieldset>
-            ) : null}
-
-            {fits.length > 0 ? (
-              <fieldset>
-                <legend>Fit</legend>
-                <div className="collection-filter-options">
+        <div className={`collection-panel${facet || sortOpen ? " is-open" : ""}`}>
+          {sortOpen ? (
+            <div className="collection-panel-options" role="listbox" aria-label="Sort products">
+              {sortOptions.map(([value, label]) => (
+                <button
+                  key={value}
+                  type="button"
+                  role="option"
+                  aria-selected={sort === value}
+                  className={`collection-option${sort === value ? " is-active" : ""}`}
+                  onClick={() => {
+                    setSort(value);
+                    setSortOpen(false);
+                  }}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          ) : facet === "filters" ? (
+            <div className="collection-panel-groups">
+              {fits.length > 1 ? (
+                <div className="collection-panel-options" role="group" aria-label="Fit">
                   {fits.map((value) => (
                     <button
                       key={value}
                       type="button"
-                      className={`shop-chip${fit === value ? " is-active" : ""}`}
-                      tabIndex={filterOpen ? 0 : -1}
+                      className={`collection-option${fit === value ? " is-active" : ""}`}
+                      aria-pressed={fit === value}
                       onClick={() => toggleValue(fit, value, setFit)}
                     >
                       {value}
                     </button>
                   ))}
                 </div>
-              </fieldset>
-            ) : null}
-          </div>
-
-          {activeCount > 0 ? (
-            <button
-              type="button"
-              className="collection-clear"
-              tabIndex={filterOpen ? 0 : -1}
-              onClick={clearFilters}
-            >
-              Clear all
-            </button>
+              ) : null}
+              {priceBands.length > 1 ? (
+                <div className="collection-panel-options" role="group" aria-label="Price">
+                  {priceBands.map((band) => (
+                    <button
+                      key={band.id}
+                      type="button"
+                      className={`collection-option${priceBand === band.id ? " is-active" : ""}`}
+                      aria-pressed={priceBand === band.id}
+                      onClick={() => toggleValue(priceBand, band.id, setPriceBand)}
+                    >
+                      {band.label}
+                    </button>
+                  ))}
+                </div>
+              ) : null}
+            </div>
+          ) : facet ? (
+            <div className="collection-panel-options" role="group" aria-label={facet}>
+              {facetOptions[facet].map((option) => {
+                const selected = facetValue[facet] === option.value;
+                return (
+                  <button
+                    key={option.value}
+                    type="button"
+                    className={`collection-option${selected ? " is-active" : ""}`}
+                    aria-pressed={selected}
+                    onClick={() =>
+                      toggleValue(facetValue[facet], option.value, setFacetValue[facet])
+                    }
+                  >
+                    {option.hex ? (
+                      <span className="collection-option-swatch" style={{ background: option.hex }} />
+                    ) : null}
+                    {option.label}
+                  </button>
+                );
+              })}
+            </div>
           ) : null}
-          </div>
         </div>
       </div>
 
       <p className="sr-only">
-        Sorted by {sortLabel}
+        {filtered.length} {filtered.length === 1 ? "piece" : "pieces"}. Sorted by {sortLabel}
         {category ? `, category ${categoryLabel(category)}` : ""}
         {size ? `, size ${size}` : ""}
         {colour ? `, colour ${colour}` : ""}
@@ -402,7 +412,7 @@ export function CollectionView({
         {products.length === 0 ? (
           <p className="collection-empty">Pieces for this collection will appear here.</p>
         ) : filtered.length > 0 ? (
-          <ProductGrid products={filtered} />
+          <ProductGrid products={filtered} columns={columns} />
         ) : (
           <p className="collection-empty">No pieces match those filters.</p>
         )}

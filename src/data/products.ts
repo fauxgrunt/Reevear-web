@@ -8,6 +8,7 @@ export type ProductColour = {
   id: string;
   name: string;
   hex: string;
+  image?: string;
 };
 
 export type ProductMeasurement = {
@@ -51,6 +52,7 @@ export type ShopProduct = {
   measurements?: ProductMeasurement[];
   relatedProductIds: string[];
   shopTheLookIds: string[];
+  group?: string;
   isNew?: boolean;
   isSale?: boolean;
   status: "active" | "sold-out";
@@ -70,11 +72,55 @@ const letterSizes = (unavailable: string[] = []): ProductSize[] =>
     available: !unavailable.includes(label),
   }));
 
-const colour = (id: string, name: string, hex: string): ProductColour => ({
+const colour = (
+  id: string,
+  name: string,
+  hex: string,
+  image?: string,
+): ProductColour => ({
   id,
   name,
   hex,
+  image,
 });
+
+function colourwayFamily(spec: {
+  group: string;
+  name: string;
+  price: string;
+  priceValue: number;
+  category: string;
+  fit: string;
+  descriptor: string;
+  variants: ProductColour[];
+  relatedProductIds: string[];
+  shopTheLookIds: string[];
+}): ShopProduct[] {
+  const pictured = spec.variants.filter((entry) => entry.image);
+  return pictured.map((entry) => ({
+    id: `${spec.group}-${entry.id}`,
+    slug: `${spec.group}-${entry.id}`,
+    group: spec.group,
+    name: spec.name,
+    colour: entry.name,
+    colours: pictured.length,
+    price: spec.price,
+    priceValue: spec.priceValue,
+    currency: "GBP",
+    featured: true,
+    swatches: pictured.map((item) => item.hex),
+    media: { primary: entry.image },
+    category: spec.category,
+    fit: spec.fit,
+    colourVariants: pictured,
+    sizes: letterSizes(),
+    descriptor: spec.descriptor,
+    relatedProductIds: spec.relatedProductIds,
+    shopTheLookIds: spec.shopTheLookIds,
+    isNew: true,
+    status: "active",
+  }));
+}
 
 const catalog: ShopProduct[] = [
   {
@@ -367,12 +413,112 @@ const catalog: ShopProduct[] = [
     shopTheLookIds: ["12", "8"],
     status: "active",
   },
+  ...colourwayFamily({
+    group: "relaxed-tee",
+    name: "Relaxed Tee",
+    price: "£45",
+    priceValue: 45,
+    category: "t-shirts",
+    fit: "Relaxed",
+    descriptor: "A relaxed tee in heavyweight cotton, for the week.",
+    variants: [
+      colour("mineral-cream", "Mineral Cream", "#e4d8c8", "/Everyday/Tshirts/Tee/1.png"),
+      colour("deep-black", "Deep Black", "#161616", "/Everyday/Tshirts/Tee/2.png"),
+    ],
+    relatedProductIds: [
+      "boxy-tee-mineral-cream",
+      "long-sleeve-tee-mineral-cream",
+      "hoodie-mineral-cream",
+    ],
+    shopTheLookIds: ["hoodie-mineral-cream"],
+  }),
+  ...colourwayFamily({
+    group: "boxy-tee",
+    name: "Boxy Tee",
+    price: "£55",
+    priceValue: 55,
+    category: "t-shirts",
+    fit: "Boxy",
+    descriptor: "A boxier tee in compact cotton. More structure, the same length.",
+    variants: [
+      colour("mineral-cream", "Mineral Cream", "#e6e2d8", "/Everyday/Tshirts/Tee/4.png"),
+      colour("deep-black", "Deep Black", "#141414", "/Everyday/Tshirts/Tee/3.png"),
+    ],
+    relatedProductIds: [
+      "relaxed-tee-mineral-cream",
+      "sweatshirt-mineral-cream",
+      "long-sleeve-tee-mineral-cream",
+    ],
+    shopTheLookIds: ["sweatshirt-mineral-cream"],
+  }),
+  ...colourwayFamily({
+    group: "long-sleeve-tee",
+    name: "Long Sleeve Tee",
+    price: "£65",
+    priceValue: 65,
+    category: "t-shirts",
+    fit: "Long Sleeve",
+    descriptor: "A long-sleeve tee in heavyweight jersey, for cooler days.",
+    variants: [
+      colour("mineral-cream", "Mineral Cream", "#d9d3c4", "/Everyday/Tshirts/Long Sleeve/1.png"),
+      colour("deep-black", "Deep Black", "#121820", "/Everyday/Tshirts/Long Sleeve/2.png"),
+      colour("washed-charcoal", "Washed Charcoal", "#4a4e53", "/Everyday/Tshirts/Long Sleeve/3.png"),
+    ],
+    relatedProductIds: [
+      "relaxed-tee-mineral-cream",
+      "hoodie-mineral-cream",
+      "sweatshirt-mineral-cream",
+    ],
+    shopTheLookIds: ["relaxed-tee-mineral-cream"],
+  }),
+  ...colourwayFamily({
+    group: "hoodie",
+    name: "Hoodie",
+    price: "£95",
+    priceValue: 95,
+    category: "hoodies",
+    fit: "Relaxed",
+    descriptor: "A fleece hoodie. Hood down, kangaroo pocket, no branding.",
+    variants: [
+      colour("mineral-cream", "Mineral Cream", "#e6dccb", "/Everyday/Hoodies/1.png"),
+      colour("washed-charcoal", "Washed Charcoal", "#5c615f", "/Everyday/Hoodies/2.png"),
+    ],
+    relatedProductIds: [
+      "relaxed-tee-mineral-cream",
+      "sweatshirt-mineral-cream",
+      "long-sleeve-tee-mineral-cream",
+    ],
+    shopTheLookIds: ["relaxed-tee-mineral-cream"],
+  }),
+  ...colourwayFamily({
+    group: "sweatshirt",
+    name: "Heavyweight Sweatshirt",
+    price: "£110",
+    priceValue: 110,
+    category: "sweatshirts",
+    fit: "Boxy",
+    descriptor: "A heavy sweatshirt. Dropped shoulder, hem at the hip.",
+    variants: [
+      colour("mineral-cream", "Mineral Cream", "#e7e0d4", "/Everyday/Sweatshirts/1.png"),
+      colour("washed-charcoal", "Washed Charcoal", "#5a5c5e", "/Everyday/Sweatshirts/2.png"),
+    ],
+    relatedProductIds: [
+      "boxy-tee-mineral-cream",
+      "hoodie-mineral-cream",
+      "relaxed-tee-mineral-cream",
+    ],
+    shopTheLookIds: ["boxy-tee-mineral-cream"],
+  }),
 ];
 
 export const products: ShopProduct[] = catalog;
 
 export function getProductBySlug(slug: string) {
   return products.find((product) => product.slug === slug);
+}
+
+export function getColourways(group: string) {
+  return products.filter((product) => product.group === group);
 }
 
 export function getProductById(id: string) {

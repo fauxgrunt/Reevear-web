@@ -43,8 +43,20 @@ export const collectionPages: Record<
   },
   everyday: {
     title: "Everyday",
-    description: "Pieces made to be worn again and again.",
-    productIds: ["1", "4", "2", "14", "12", "13"],
+    description: "Tees, hoodies, and sweatshirts.",
+    productIds: [
+      "relaxed-tee-mineral-cream",
+      "relaxed-tee-deep-black",
+      "boxy-tee-mineral-cream",
+      "boxy-tee-deep-black",
+      "long-sleeve-tee-mineral-cream",
+      "long-sleeve-tee-deep-black",
+      "long-sleeve-tee-washed-charcoal",
+      "hoodie-mineral-cream",
+      "hoodie-washed-charcoal",
+      "sweatshirt-mineral-cream",
+      "sweatshirt-washed-charcoal",
+    ],
   },
   outerwear: {
     title: "Outerwear",
@@ -77,9 +89,17 @@ export const collectionPages: Record<
     productIds: ["5", "11"],
   },
   shirts: {
-    title: "Shirts",
-    description: "Shirts and polos from the current line.",
-    productIds: ["1", "4", "14"],
+    title: "Shirts & Polos",
+    description: "Relaxed, boxy, and long-sleeve tees.",
+    productIds: [
+      "relaxed-tee-mineral-cream",
+      "relaxed-tee-deep-black",
+      "boxy-tee-mineral-cream",
+      "boxy-tee-deep-black",
+      "long-sleeve-tee-mineral-cream",
+      "long-sleeve-tee-deep-black",
+      "long-sleeve-tee-washed-charcoal",
+    ],
   },
   trousers: {
     title: "Trousers",
@@ -97,14 +117,27 @@ export const collectionPages: Record<
     productIds: [],
   },
   "mens-shirts-polos": {
-    title: "Mens Shirts & Polos",
-    description: "Rugbys, camps, and polished casual shirts.",
-    productIds: ["1", "4", "14"],
+    title: "Shirts & Polos",
+    description: "Relaxed, boxy, and long-sleeve tees.",
+    productIds: [
+      "relaxed-tee-mineral-cream",
+      "relaxed-tee-deep-black",
+      "boxy-tee-mineral-cream",
+      "boxy-tee-deep-black",
+      "long-sleeve-tee-mineral-cream",
+      "long-sleeve-tee-deep-black",
+      "long-sleeve-tee-washed-charcoal",
+    ],
   },
   "mens-hoodies": {
-    title: "Mens Hoodies",
-    description: "Soft fleece layers with clean lines.",
-    productIds: ["2"],
+    title: "Hoodies & Sweatshirts",
+    description: "Fleece hoodies and heavyweight sweatshirts.",
+    productIds: [
+      "hoodie-mineral-cream",
+      "hoodie-washed-charcoal",
+      "sweatshirt-mineral-cream",
+      "sweatshirt-washed-charcoal",
+    ],
   },
   "mens-shorts": {
     title: "Mens Shorts",
@@ -237,6 +270,8 @@ export const exploreFeatureTiles: NavTile[] = [
 
 export const mobileShopLinks: NavLink[] = [
   { label: "Everyday", href: "/collections/everyday" },
+  { label: "Hoodies & Sweatshirts", href: "/collections/mens-hoodies" },
+  { label: "Shirts & Polos", href: "/collections/shirts" },
   { label: "Outerwear", href: "/collections/outerwear" },
   { label: "Denim & Trousers", href: "/collections/denim-trousers" },
   { label: "Activewear", href: "/collections/activewear" },

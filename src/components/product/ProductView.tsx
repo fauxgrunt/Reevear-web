@@ -7,7 +7,7 @@ import { ProductGallery } from "@/components/product/ProductGallery";
 import { RelatedProducts } from "@/components/product/RelatedProducts";
 import { ShopTheLook } from "@/components/product/ShopTheLook";
 import { SizeGuide } from "@/components/product/SizeGuide";
-import type { ShopProduct } from "@/data/products";
+import { getColourways, type ShopProduct } from "@/data/products";
 
 export function ProductView({ product }: { product: ShopProduct }) {
   const { addItem } = useCart();
@@ -19,12 +19,17 @@ export function ProductView({ product }: { product: ShopProduct }) {
   const [status, setStatus] = useState<"idle" | "loading" | "added">("idle");
   const [openSection, setOpenSection] = useState<string | null>(null);
 
+  const colourways = product.group ? getColourways(product.group) : [];
   const colour = useMemo(
     () =>
       product.colourVariants.find((entry) => entry.id === colourId) ??
       product.colourVariants[0],
     [colourId, product.colourVariants],
   );
+  const colourName = product.group ? product.colour : (colour?.name ?? product.colour);
+  const galleryImage = product.group
+    ? product.media.primary
+    : (colour?.image ?? product.media.primary);
 
   const selectedSize = product.sizes.find((entry) => entry.id === sizeId);
 
@@ -49,7 +54,7 @@ export function ProductView({ product }: { product: ShopProduct }) {
         slug: product.slug,
         name: product.name,
         price: product.price,
-        colour: colour?.name ?? product.colour,
+        colour: colourName,
         size: selectedSize.label,
         quantity,
       });
@@ -102,7 +107,7 @@ export function ProductView({ product }: { product: ShopProduct }) {
   return (
     <>
       <div className="home-gutter pt-24 pb-8 md:pt-28 lg:grid lg:grid-cols-[minmax(0,1.12fr)_minmax(20rem,0.88fr)] lg:items-start lg:gap-12 xl:gap-20">
-        <ProductGallery product={product} />
+        <ProductGallery product={product} image={galleryImage} />
 
         <aside className="mt-10 lg:sticky lg:top-28 lg:mt-0 lg:self-start">
           <h1 className="product-title">{product.name}</h1>
@@ -124,7 +129,28 @@ export function ProductView({ product }: { product: ShopProduct }) {
             </p>
           ) : null}
 
-          {product.colourVariants.length > 0 ? (
+          {colourways.length > 1 ? (
+            <fieldset className="mt-8">
+              <legend className="shop-label">Colour — {colourName}</legend>
+              <div className="mt-3 flex flex-wrap gap-2">
+                {colourways.map((entry) => (
+                  <Link
+                    key={entry.id}
+                    href={`/products/${entry.slug}`}
+                    className={`shop-swatch ${entry.id === product.id ? "is-active" : ""}`}
+                    style={{
+                      background:
+                        entry.colourVariants.find((item) => item.name === entry.colour)?.hex ??
+                        entry.swatches[0],
+                    }}
+                    aria-label={entry.colour}
+                    aria-current={entry.id === product.id ? "true" : undefined}
+                    title={entry.colour}
+                  />
+                ))}
+              </div>
+            </fieldset>
+          ) : product.colourVariants.length > 0 ? (
             <fieldset className="mt-8">
               <legend className="shop-label">
                 Colour — {colour?.name ?? product.colour}
