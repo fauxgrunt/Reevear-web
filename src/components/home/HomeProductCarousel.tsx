@@ -3,6 +3,8 @@
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ProductMedia } from "@/components/product/ProductMedia";
+import { useCurrency } from "@/components/currency/CurrencyProvider";
+import { poundsFromLabel } from "@/lib/money";
 import type { ShopProduct } from "@/data/products";
 
 function ArrowIcon({ direction }: { direction: "prev" | "next" }) {
@@ -38,6 +40,9 @@ function ProductCaption({
   product: ShopProduct;
   showPlus?: boolean;
 }) {
+  const { format } = useCurrency();
+  const was = product.compareAtPrice ? poundsFromLabel(product.compareAtPrice) : null;
+
   return (
     <div className="home-arrivals-meta">
       <p className="home-arrivals-name">{product.name}</p>
@@ -47,13 +52,13 @@ function ProductCaption({
         </span>
       ) : null}
       <p className="home-arrivals-price">
-        {product.compareAtPrice ? (
+        {was != null ? (
           <>
-            <span className="home-arrivals-price-was">{product.compareAtPrice}</span>
-            {product.price}
+            <span className="home-arrivals-price-was">{format(was)}</span>
+            {format(product.priceValue)}
           </>
         ) : (
-          product.price
+          format(product.priceValue)
         )}
       </p>
     </div>

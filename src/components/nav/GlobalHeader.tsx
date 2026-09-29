@@ -5,11 +5,14 @@ import { usePathname } from "next/navigation";
 import { useEffect, useId, useRef, useState } from "react";
 import { BrandLogo } from "@/components/BrandLogo";
 import { useCart } from "@/components/cart/CartProvider";
+import { useCurrency } from "@/components/currency/CurrencyProvider";
+import { poundsFromLabel } from "@/lib/money";
+import { MarketPanel } from "@/components/currency/MarketPanel";
 import { ExploreMegaMenu } from "@/components/nav/ExploreMegaMenu";
 import { MobileNavigation } from "@/components/nav/MobileNavigation";
 import { ShopMegaMenu } from "@/components/nav/ShopMegaMenu";
 import { searchCollections, searchPopular } from "@/data/navigation";
-import { products } from "@/data/products";
+import { getProductById, products } from "@/data/products";
 
 type Mega = "shop" | "explore" | null;
 type MobileGroup = "shop" | "explore" | null;
@@ -70,11 +73,13 @@ function BurgerIcon({ open }: { open: boolean }) {
 
 export function GlobalHeader() {
   const { count, items } = useCart();
+  const { format, market } = useCurrency();
   const pathname = usePathname();
   const [menuOpen, setMenuOpen] = useState(false);
   const [mobileGroup, setMobileGroup] = useState<MobileGroup>(null);
   const [searchOpen, setSearchOpen] = useState(false);
   const [bagOpen, setBagOpen] = useState(false);
+  const [marketOpen, setMarketOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [scrolled, setScrolled] = useState(false);
   const [mounted, setMounted] = useState(false);
@@ -83,6 +88,7 @@ export function GlobalHeader() {
   const searchId = useId();
   const searchFieldId = useId();
   const bagId = useId();
+  const marketId = useId();
   const closeRef = useRef<HTMLButtonElement>(null);
   const megaTimer = useRef<number>(0);
   const searchInputRef = useRef<HTMLInputElement>(null);
@@ -102,6 +108,7 @@ export function GlobalHeader() {
     setMega(null);
     setSearchOpen(false);
     setBagOpen(false);
+    setMarketOpen(false);
   }, [pathname]);
 
   useEffect(() => {
@@ -117,6 +124,7 @@ export function GlobalHeader() {
       closeMenu();
       setSearchOpen(false);
       setBagOpen(false);
+      setMarketOpen(false);
       setMega(null);
     };
     window.addEventListener("keydown", onKey);
@@ -226,6 +234,7 @@ export function GlobalHeader() {
             onClick={() => {
               setSearchOpen(false);
               setBagOpen(false);
+              setMarketOpen(false);
               setMega(null);
               if (menuOpen) closeMenu();
               else {
@@ -280,6 +289,24 @@ export function GlobalHeader() {
           <div className="home-nav-actions">
             <button
               type="button"
+              className="home-nav-currency"
+              aria-label={`Country, ${market.country}`}
+              aria-expanded={marketOpen}
+              aria-controls={marketId}
+              onMouseEnter={() => openMega(null)}
+              onFocus={() => openMega(null)}
+              onClick={() => {
+                closeMenu();
+                setMega(null);
+                setSearchOpen(false);
+                setBagOpen(false);
+                setMarketOpen((value) => !value);
+              }}
+            >
+              {market.currency}
+            </button>
+            <button
+              type="button"
               className="home-nav-icon-btn"
               aria-label="Search"
               aria-expanded={searchOpen}
@@ -290,6 +317,7 @@ export function GlobalHeader() {
                 closeMenu();
                 setMega(null);
                 setBagOpen(false);
+                setMarketOpen(false);
                 setSearchOpen((value) => !value);
               }}
             >
@@ -316,6 +344,7 @@ export function GlobalHeader() {
                 closeMenu();
                 setMega(null);
                 setSearchOpen(false);
+                setMarketOpen(false);
                 setBagOpen((value) => !value);
               }}
             >
@@ -363,7 +392,7 @@ export function GlobalHeader() {
                       tabIndex={searchOpen ? 0 : -1}
                     >
                       <span>{product.name}</span>
-                      <span>{product.price}</span>
+                      <span>{format(product.priceValue)}</span>
                     </Link>
                   </li>
                 ))}
@@ -420,6 +449,12 @@ export function GlobalHeader() {
             )}
           </div>
         </div>
+
+        <MarketPanel
+          open={marketOpen}
+          panelId={marketId}
+          onChoose={() => setMarketOpen(false)}
+        />
       </div>
 
       <aside
@@ -460,7 +495,13 @@ export function GlobalHeader() {
                   <p>
                     {item.size} · {item.colour} · {item.quantity}
                   </p>
-                  <p>{item.price}</p>
+                  <p>
+                    {format(
+                      (getProductById(item.productId)?.priceValue ??
+                        poundsFromLabel(item.price) ??
+                        0) * item.quantity,
+                    )}
+                  </p>
                 </li>
               ))}
             </ul>

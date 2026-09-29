@@ -3,9 +3,20 @@ import { CheckoutView } from "@/components/pages/CheckoutView";
 
 export const metadata: Metadata = {
   title: "Checkout | Reevear",
-  description: "Checkout is not connected yet.",
+  description: "Pay for your Reevear order in pounds. UK delivery is complimentary.",
 };
 
-export default function CheckoutPage() {
-  return <CheckoutView />;
+export default async function CheckoutPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ cancelled?: string }>;
+}) {
+  const params = await searchParams;
+
+  return (
+    <CheckoutView
+      cancelled={params.cancelled === "1"}
+      paymentsReady={Boolean(process.env.STRIPE_SECRET_KEY?.trim())}
+    />
+  );
 }

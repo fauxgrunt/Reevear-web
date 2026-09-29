@@ -3,6 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { ProductMedia } from "@/components/product/ProductMedia";
+import { useCurrency } from "@/components/currency/CurrencyProvider";
 import { getColourways, type ShopProduct } from "@/data/products";
 
 function swatchHex(product: ShopProduct) {
@@ -14,6 +15,7 @@ function swatchHex(product: ShopProduct) {
 }
 
 export function ProductCard({ product }: { product: ShopProduct }) {
+  const { format } = useCurrency();
   const sizes = product.sizes.filter((entry) => entry.available);
   const colourways = product.group ? getColourways(product.group) : [];
   const [colourId, setColourId] = useState(product.colourVariants[0]?.id ?? "");
@@ -46,7 +48,7 @@ export function ProductCard({ product }: { product: ShopProduct }) {
         </div>
         <div className="collection-card-meta">
           <h2>{product.name}</h2>
-          <p className="collection-card-price">£{product.priceValue.toFixed(2)}</p>
+          <p className="collection-card-price">{format(product.priceValue)}</p>
         </div>
       </Link>
       {colourways.length > 1 ? (

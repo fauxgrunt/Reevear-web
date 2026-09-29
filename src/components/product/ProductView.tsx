@@ -3,6 +3,8 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import { useCart } from "@/components/cart/CartProvider";
+import { useCurrency } from "@/components/currency/CurrencyProvider";
+import { poundsFromLabel } from "@/lib/money";
 import { ProductGallery } from "@/components/product/ProductGallery";
 import { RelatedProducts } from "@/components/product/RelatedProducts";
 import { ShopTheLook } from "@/components/product/ShopTheLook";
@@ -11,6 +13,7 @@ import { getColourways, type ShopProduct } from "@/data/products";
 
 export function ProductView({ product }: { product: ShopProduct }) {
   const { addItem } = useCart();
+  const { format } = useCurrency();
   const [colourId, setColourId] = useState(product.colourVariants[0]?.id ?? "");
   const [sizeId, setSizeId] = useState<string | null>(null);
   const [quantity, setQuantity] = useState(1);
@@ -98,7 +101,7 @@ export function ProductView({ product }: { product: ShopProduct }) {
     {
       id: "shipping",
       label: "Shipping & returns",
-      body: "See Shipping and Returns for the current delivery and returns information. Complimentary UK shipping is stated in the announcement bar. Checkout is not connected yet.",
+      body: "See Shipping and Returns for the current delivery and returns information. Complimentary UK shipping is stated in the announcement bar. Payment is taken in pounds.",
     },
   ].filter((section): section is { id: string; label: string; body: string } =>
     Boolean(section),
@@ -112,15 +115,15 @@ export function ProductView({ product }: { product: ShopProduct }) {
         <aside className="mt-10 lg:sticky lg:top-28 lg:mt-0 lg:self-start">
           <h1 className="product-title">{product.name}</h1>
           <p className="mt-3 text-sm text-[#171715]">
-            {product.compareAtPrice ? (
+            {product.compareAtPrice && poundsFromLabel(product.compareAtPrice) != null ? (
               <>
                 <span className="mr-2 text-[var(--home-muted)] line-through">
-                  {product.compareAtPrice}
+                  {format(poundsFromLabel(product.compareAtPrice) ?? 0)}
                 </span>
-                {product.price}
+                {format(product.priceValue)}
               </>
             ) : (
-              product.price
+              format(product.priceValue)
             )}
           </p>
           {product.descriptor ? (

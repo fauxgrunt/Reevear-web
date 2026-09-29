@@ -1,4 +1,5 @@
 import { CartProvider } from "@/components/cart/CartProvider";
+import { CurrencyProvider } from "@/components/currency/CurrencyProvider";
 import { PageTransition } from "@/components/nav/PageTransition";
 import type { Metadata } from "next";
 import { Cormorant_Garamond, Outfit, Syne } from "next/font/google";
@@ -42,7 +43,9 @@ export default function RootLayout({
     >
       <body className="min-h-full bg-ink text-mist antialiased">
         <CartProvider>
-          <PageTransition>{children}</PageTransition>
+          <CurrencyProvider>
+            <PageTransition>{children}</PageTransition>
+          </CurrencyProvider>
         </CartProvider>
       </body>
     </html>

@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ProductGrid } from "@/components/product/ProductGrid";
+import { useCurrency } from "@/components/currency/CurrencyProvider";
 import type { ShopProduct } from "@/data/products";
 
 type SortKey = "featured" | "price-asc" | "price-desc" | "newest";
@@ -35,11 +36,21 @@ const categoryLabels: Record<string, string> = {
   jackets: "Jackets",
 };
 
-const priceBandDefs: PriceBand[] = [
-  { id: "under-50", label: "Under £50", match: (value) => value < 50 },
-  { id: "50-100", label: "£50 – £100", match: (value) => value >= 50 && value <= 100 },
-  { id: "over-100", label: "Over £100", match: (value) => value > 100 },
+const priceBandDefs: Omit<PriceBand, "label">[] = [
+  { id: "under-50", match: (value) => value < 50 },
+  { id: "50-100", match: (value) => value >= 50 && value <= 100 },
+  { id: "over-100", match: (value) => value > 100 },
 ];
+
+function bandLabel(
+  id: string,
+  format: (pounds: number, options?: { whole?: boolean }) => string,
+) {
+  const whole = { whole: true as const };
+  if (id === "under-50") return `Under ${format(50, whole)}`;
+  if (id === "50-100") return `${format(50, whole)} – ${format(100, whole)}`;
+  return `Over ${format(100, whole)}`;
+}
 
 function categoryLabel(value: string) {
   return categoryLabels[value] ?? value;
@@ -63,6 +74,7 @@ export function CollectionView({
   const [fit, setFit] = useState<string | null>(null);
   const [category, setCategory] = useState<string | null>(null);
   const [priceBand, setPriceBand] = useState<string | null>(null);
+  const { format } = useCurrency();
   const sortRef = useRef<HTMLDivElement>(null);
   const toolbarRef = useRef<HTMLDivElement>(null);
 
@@ -109,10 +121,10 @@ export function CollectionView({
 
   const priceBands = useMemo(
     () =>
-      priceBandDefs.filter((band) =>
-        products.some((product) => band.match(product.priceValue)),
-      ),
-    [products],
+      priceBandDefs
+        .filter((band) => products.some((product) => band.match(product.priceValue)))
+        .map((band) => ({ ...band, label: bandLabel(band.id, format) })),
+    [format, products],
   );
 
   const filtered = useMemo(() => {
@@ -406,7 +418,7 @@ export function CollectionView({
         {colour ? `, colour ${colour}` : ""}
         {fit ? `, fit ${fit}` : ""}
         {priceBand
-          ? `, ${priceBandDefs.find((band) => band.id === priceBand)?.label ?? ""}`
+          ? `, ${priceBands.find((band) => band.id === priceBand)?.label ?? ""}`
           : ""}
       </p>
 
