@@ -8,7 +8,10 @@ export type CheckoutRequestLine = {
 };
 
 export type PricedCheckoutLine = {
+  productId: string;
   name: string;
+  colour: string;
+  size: string;
   description: string;
   quantity: number;
   unitAmount: number;
@@ -77,7 +80,10 @@ export function priceCheckout(
     }
 
     lines.push({
+      productId: product.id,
       name: product.name,
+      colour,
+      size,
       description: `${colour} · Size ${size}`,
       quantity,
       unitAmount,

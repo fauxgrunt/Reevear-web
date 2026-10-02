@@ -1,4 +1,5 @@
 import { escapeHtml, getMailer, sendEmail } from "@/lib/mail";
+import { orderFromSession, persistPaidOrder, type PaidOrder } from "@/lib/orders";
 import { getStripe } from "@/lib/stripe";
 import type Stripe from "stripe";
 
@@ -26,37 +27,54 @@ export async function POST(request: Request) {
     const completed = event.data.object as Stripe.Checkout.Session;
     if (completed.payment_status === "paid") {
       const session = await stripe.checkout.sessions.retrieve(completed.id, {
-        expand: ["line_items"],
+        expand: ["line_items.data.price.product"],
       });
-      await notifyOrder(session);
+      try {
+        const order = orderFromSession(session);
+        const stored = await persistPaidOrder(order);
+        if (stored === "unconfigured") {
+          console.error("DATABASE_URL is not set. The paid order was not stored.");
+        }
+        if (stored !== "exists") {
+          try {
+            await notifyOrder(order);
+          } catch (error) {
+            console.error(error);
+          }
+        }
+      } catch (error) {
+        console.error(error);
+        return Response.json({ error: "Order could not be recorded." }, { status: 500 });
+      }
     }
   }
 
   return Response.json({ received: true });
 }
 
-async function notifyOrder(session: Stripe.Checkout.Session) {
+async function notifyOrder(order: PaidOrder) {
   const mailer = getMailer();
   if (!mailer) return;
 
-  const email = session.customer_details?.email ?? "No email";
-  const shipping = session.collected_information?.shipping_details;
-  const name = session.customer_details?.name ?? shipping?.name ?? "";
-  const address = formatAddress(shipping?.address);
-  const lines = session.line_items?.data ?? [];
-  const amount = formatPence(session.amount_total ?? 0);
-  const reference = session.id;
+  const email = order.email || "No email";
+  const address = [
+    order.shippingLine1,
+    order.shippingLine2,
+    order.shippingCity,
+    order.shippingPostalCode,
+    order.shippingCountry,
+  ]
+    .filter(Boolean)
+    .join("\n");
+  const amount = formatPence(order.amountTotal);
 
   const text = [
-    `New paid order ${reference}`,
-    name ? `Name: ${name}` : null,
+    `New paid order ${order.id}`,
+    order.customerName ? `Name: ${order.customerName}` : null,
     `Email: ${email}`,
     address ? `Delivery:\n${address}` : null,
     "",
-    ...lines.map(
-      (line) =>
-        `${line.quantity ?? 1} × ${line.description} — ${formatPence(line.amount_total ?? 0)}`,
-    ),
+    ...order.lines.map((line) => `${lineLabel(line)} — ${formatPence(line.amountTotal)}`),
     "",
     `Total: ${amount}`,
   ]
@@ -64,15 +82,15 @@ async function notifyOrder(session: Stripe.Checkout.Session) {
     .join("\n");
 
   const html = `
-    <p>New paid order <strong>${escapeHtml(reference)}</strong></p>
-    ${name ? `<p>${escapeHtml(name)}</p>` : ""}
+    <p>New paid order <strong>${escapeHtml(order.id)}</strong></p>
+    ${order.customerName ? `<p>${escapeHtml(order.customerName)}</p>` : ""}
     <p>${escapeHtml(email)}</p>
     ${address ? `<p>${escapeHtml(address).replaceAll("\n", "<br />")}</p>` : ""}
     <ul>
-      ${lines
+      ${order.lines
         .map(
           (line) =>
-            `<li>${line.quantity ?? 1} × ${escapeHtml(line.description ?? "")} — ${escapeHtml(formatPence(line.amount_total ?? 0))}</li>`,
+            `<li>${escapeHtml(lineLabel(line))} — ${escapeHtml(formatPence(line.amountTotal))}</li>`,
         )
         .join("")}
     </ul>
@@ -81,17 +99,15 @@ async function notifyOrder(session: Stripe.Checkout.Session) {
 
   await sendEmail({
     ...mailer,
-    subject: `Reevear order ${reference}`,
+    subject: `Reevear order ${order.id}`,
     text,
     html,
   });
 }
 
-function formatAddress(address: Stripe.Address | null | undefined) {
-  if (!address) return "";
-  return [address.line1, address.line2, address.city, address.postal_code, address.country]
-    .filter(Boolean)
-    .join("\n");
+function lineLabel(line: PaidOrder["lines"][number]) {
+  const detail = [line.colour, line.size ? `size ${line.size}` : ""].filter(Boolean).join(", ");
+  return `${line.quantity} × ${line.name}${detail ? ` (${detail})` : ""}`;
 }
 
 function formatPence(amount: number) {

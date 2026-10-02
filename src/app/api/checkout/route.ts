@@ -48,6 +48,11 @@ export async function POST(request: Request) {
           product_data: {
             name: line.name,
             description: line.description,
+            metadata: {
+              productId: line.productId,
+              colour: line.colour,
+              size: line.size,
+            },
           },
         },
       })),
