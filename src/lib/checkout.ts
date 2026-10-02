@@ -67,9 +67,10 @@ export function priceCheckout(
       return { ok: false, error: `${product.name} is not available in ${size}.` };
     }
 
-    const colourOk =
-      product.colour === colour ||
-      product.colourVariants.some((option) => option.name === colour);
+    const colourOk = product.group
+      ? product.colour === colour
+      : product.colour === colour ||
+        product.colourVariants.some((option) => option.name === colour);
     if (!colourOk) {
       return { ok: false, error: `${product.name} is not available in ${colour}.` };
     }

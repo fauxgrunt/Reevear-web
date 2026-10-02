@@ -9,9 +9,15 @@ import { ProductGallery } from "@/components/product/ProductGallery";
 import { RelatedProducts } from "@/components/product/RelatedProducts";
 import { ShopTheLook } from "@/components/product/ShopTheLook";
 import { SizeGuide } from "@/components/product/SizeGuide";
-import { getColourways, type ShopProduct } from "@/data/products";
+import { getColourways, type ProductSize, type ShopProduct } from "@/data/products";
 
-export function ProductView({ product }: { product: ShopProduct }) {
+export function ProductView({
+  product,
+  stock = null,
+}: {
+  product: ShopProduct;
+  stock?: { colour: string; size: string; quantity: number }[] | null;
+}) {
   const { addItem } = useCart();
   const { format } = useCurrency();
   const [colourId, setColourId] = useState(product.colourVariants[0]?.id ?? "");
@@ -36,6 +42,18 @@ export function ProductView({ product }: { product: ShopProduct }) {
 
   const selectedSize = product.sizes.find((entry) => entry.id === sizeId);
 
+  function held(sizeLabel: string) {
+    if (!stock) return null;
+    const row = stock.find((entry) => entry.colour === colourName && entry.size === sizeLabel);
+    return row?.quantity ?? 0;
+  }
+
+  function sizeAvailable(entry: ProductSize) {
+    if (!entry.available) return false;
+    const onHand = held(entry.label);
+    return onHand == null ? true : onHand > 0;
+  }
+
   function addToBag() {
     setError(null);
     if (product.status === "sold-out") {
@@ -46,8 +64,14 @@ export function ProductView({ product }: { product: ShopProduct }) {
       setError("Select a size.");
       return;
     }
-    if (!selectedSize.available) {
+    if (!sizeAvailable(selectedSize)) {
       setError("That size is unavailable.");
+      return;
+    }
+    const onHand = held(selectedSize.label);
+    if (onHand != null && quantity > onHand) {
+      const verb = onHand === 1 ? "is" : "are";
+      setError(`Only ${onHand} ${verb} left in this size.`);
       return;
     }
     setStatus("loading");
@@ -177,20 +201,24 @@ export function ProductView({ product }: { product: ShopProduct }) {
           <fieldset className="mt-8">
             <legend className="shop-label">Size</legend>
             <div className="mt-3 flex flex-wrap gap-2">
-              {product.sizes.map((entry) => (
-                <button
-                  key={entry.id}
-                  type="button"
-                  disabled={!entry.available}
-                  className={`shop-size ${sizeId === entry.id ? "is-active" : ""}`}
-                  onClick={() => {
-                    setSizeId(entry.id);
-                    setError(null);
-                  }}
-                >
-                  {entry.label}
-                </button>
-              ))}
+              {product.sizes.map((entry) => {
+                const available = sizeAvailable(entry);
+                return (
+                  <button
+                    key={entry.id}
+                    type="button"
+                    disabled={!available}
+                    aria-label={available ? entry.label : `${entry.label}, unavailable`}
+                    className={`shop-size ${sizeId === entry.id && available ? "is-active" : ""}`}
+                    onClick={() => {
+                      setSizeId(entry.id);
+                      setError(null);
+                    }}
+                  >
+                    {entry.label}
+                  </button>
+                );
+              })}
             </div>
             <button
               type="button"
@@ -274,8 +302,8 @@ export function ProductView({ product }: { product: ShopProduct }) {
                           Returns
                         </Link>{" "}
                         for current delivery and returns information. Complimentary
-                        UK shipping is stated in the announcement bar. Checkout is
-                        not connected yet.
+                        UK shipping is stated in the announcement bar. Payment is
+                        taken in pounds.
                       </p>
                     ) : (
                       <p className="pb-5 text-sm leading-relaxed whitespace-pre-line text-[var(--home-muted)]">

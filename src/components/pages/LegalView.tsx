@@ -424,7 +424,7 @@ const privacy: LegalPage = {
   title: "Privacy",
   lede: (
     <>
-      <p>Last updated: 22 September 2026</p>
+      <p>Last updated: 3 October 2026</p>
       <p>How REEVEAR handles your personal information.</p>
     </>
   ),
@@ -533,6 +533,17 @@ const privacy: LegalPage = {
             your bag.
           </p>
           <p>
+            <strong>Account</strong>
+          </p>
+          <p>
+            If you create an account, we store your name, email address, and a
+            scrambled form of your password. The password itself is not stored.
+          </p>
+          <p>
+            We use that account to sign you in and to show paid orders placed
+            with the same email address. You can still pay without an account.
+          </p>
+          <p>
             <strong>Technical information</strong>
           </p>
           <p>
@@ -560,6 +571,7 @@ const privacy: LegalPage = {
               Send marketing emails where you have provided the required
               consent
             </li>
+            <li>Sign you in and show the paid orders placed with your email</li>
             <li>Operate, secure and maintain the website</li>
             <li>Meet our legal and regulatory obligations</li>
           </ul>
@@ -583,7 +595,8 @@ const privacy: LegalPage = {
           </p>
           <p>
             We use Resend to deliver emails generated through the website,
-            including contact enquiries.
+            including contact enquiries, account confirmation, and password
+            reset.
           </p>
           <p>
             Information submitted through the relevant forms may therefore be
@@ -778,7 +791,7 @@ const cookies: LegalPage = {
   title: "Cookies & Similar Technologies",
   lede: (
     <>
-      <p>Last updated: 22 September 2026</p>
+      <p>Last updated: 3 October 2026</p>
       <p>
         REEVEAR uses cookies and similar technologies only where they are needed
         to operate the website or where applicable legal requirements are met.
@@ -801,6 +814,11 @@ const cookies: LegalPage = {
             The current REEVEAR frontend keeps the shopping bag in browser
             memory while the page is open. The current implementation does not
             write the bag to cookies or local storage.
+          </p>
+          <p>
+            Signing in sets one strictly necessary cookie, reevear_session, so
+            the browser stays signed in. It is removed when you sign out. It is
+            not used for advertising.
           </p>
           <p>
             Other cookies or similar technologies may be used by our website

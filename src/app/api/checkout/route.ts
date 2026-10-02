@@ -1,4 +1,6 @@
 import { priceCheckout } from "@/lib/checkout";
+import { getDb } from "@/lib/db";
+import { assertInStock } from "@/lib/stock";
 import { getStripe } from "@/lib/stripe";
 
 export async function POST(request: Request) {
@@ -20,6 +22,19 @@ export async function POST(request: Request) {
   const priced = priceCheckout(body);
   if (!priced.ok) {
     return Response.json({ error: priced.error }, { status: 400 });
+  }
+
+  const db = getDb();
+  if (!db) {
+    return Response.json({ error: "Stock cannot be checked right now." }, { status: 503 });
+  }
+  try {
+    const stock = await assertInStock(db, priced.lines);
+    if (!stock.ok) {
+      return Response.json({ error: stock.error }, { status: 409 });
+    }
+  } catch {
+    return Response.json({ error: "Stock cannot be checked right now." }, { status: 503 });
   }
 
   const origin = siteOrigin(request);

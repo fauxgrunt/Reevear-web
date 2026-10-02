@@ -1,4 +1,5 @@
 import { ensureOrdersSchema, getDb, type Queryable } from "@/lib/db";
+import { ensureStock, takePaidStock } from "@/lib/stock";
 import type Stripe from "stripe";
 
 export type PaidOrderLine = {
@@ -71,6 +72,7 @@ export async function savePaidOrder(
   order: PaidOrder,
 ): Promise<"created" | "exists"> {
   await ensureOrdersSchema(db);
+  await ensureStock(db);
   return db.tx(async (tx) => {
     const inserted = await tx.rows<{ id: string }>(
       `INSERT INTO orders (
@@ -114,6 +116,7 @@ export async function savePaidOrder(
         ],
       );
     }
+    await takePaidStock(tx, order.lines);
     return "created";
   });
 }

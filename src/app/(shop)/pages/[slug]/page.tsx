@@ -1,6 +1,5 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
-import { AccountView } from "@/components/pages/AccountView";
 import { ContactView } from "@/components/pages/ContactView";
 import { LegalView } from "@/components/pages/LegalView";
 import { MadeToMoveView } from "@/components/pages/MadeToMoveView";
@@ -28,11 +27,6 @@ const pages = {
     title: "Contact",
     description: "Contact Reevear.",
     View: ContactView,
-  },
-  account: {
-    title: "Account",
-    description: "Reevear account is not connected yet.",
-    View: AccountView,
   },
   shipping: {
     title: "Shipping & Delivery",

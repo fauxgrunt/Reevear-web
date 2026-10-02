@@ -3617,6 +3617,7 @@ html:has(.home-root) body {
 .legal-block h2,
 .contact-details h2,
 .contact-page h2,
+.account-page h2,
 .size-page h2 {
   font-family: var(--font-serif), "Palatino Linotype", Palatino, serif;
   font-size: clamp(1.45rem, 2.4vw, 1.9rem);
@@ -3751,8 +3752,36 @@ html:has(.home-root) body {
 }
 
 .contact-details h2 + p,
-.contact-page h2 + .contact-form {
+.contact-page h2 + .contact-form,
+.account-page h2 + .contact-form {
   margin-top: 0;
+}
+
+.account-forms,
+.account-block {
+  max-width: 32rem;
+}
+
+.account-block {
+  margin-top: 3rem;
+}
+
+.account-orders {
+  list-style: none;
+  margin-top: 0.4rem;
+}
+
+.account-orders li {
+  border-top: 1px solid var(--home-line);
+  padding: 1.05rem 0;
+}
+
+.account-orders li:last-child {
+  border-bottom: 1px solid var(--home-line);
+}
+
+.account-orders p + p {
+  margin-top: 0.35rem;
 }
 
 .contact-details h2:not(:first-child) {

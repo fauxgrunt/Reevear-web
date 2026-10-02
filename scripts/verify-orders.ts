@@ -1,6 +1,7 @@
 import { PGlite } from "@electric-sql/pglite";
 import type { Queryable } from "../src/lib/db";
 import { getPaidOrder, orderFromSession, savePaidOrder } from "../src/lib/orders";
+import { assertInStock, OPENING_QUANTITY } from "../src/lib/stock";
 import type Stripe from "stripe";
 
 function memoryDb(pg: PGlite): Queryable {
@@ -96,7 +97,64 @@ async function main() {
   }
   if (stored.amountTotal !== 9500) throw new Error("The stored total is not the charged pence.");
 
-  console.log("Paid order stored once, with the piece, address, and pound total.");
+  const piece = {
+    productId: "hoodie-washed-charcoal",
+    name: "Hoodie",
+    colour: "Washed Charcoal",
+    size: "L",
+  };
+  const remaining = await onHand(db, piece);
+  if (remaining !== OPENING_QUANTITY - 1) {
+    throw new Error(`Payment left ${remaining} in stock.`);
+  }
+  const repeat = await savePaidOrder(db, order);
+  if (repeat !== "exists") throw new Error("Repeat save did not recognise the order.");
+  if ((await onHand(db, piece)) !== remaining) {
+    throw new Error("A repeat notice reduced stock again.");
+  }
+
+  await setOnHand(db, piece, 0);
+  const soldOut = await assertInStock(db, [{ ...piece, quantity: 1 }]);
+  if (soldOut.ok) throw new Error("Checkout allowed a size at zero.");
+
+  await setOnHand(db, piece, 2);
+  const tooMany = await assertInStock(db, [{ ...piece, quantity: 3 }]);
+  if (tooMany.ok) throw new Error("Checkout allowed more than the remaining quantity.");
+  const enough = await assertInStock(db, [{ ...piece, quantity: 2 }]);
+  if (!enough.ok) throw new Error("Checkout refused a quantity that is in stock.");
+
+  const another = structuredClone(session());
+  another.id = "cs_test_order_2";
+  const anotherLine = another.line_items?.data[0];
+  if (!anotherLine) throw new Error("The second payment has no piece.");
+  anotherLine.quantity = 2;
+  const sold = await savePaidOrder(db, orderFromSession(another));
+  if (sold !== "created") throw new Error("The second payment was not stored.");
+  if ((await onHand(db, piece)) !== 0) throw new Error("Payment did not reduce stock to zero.");
+
+  console.log("Paid order stored once, and stock fell only after that payment.");
+}
+
+async function onHand(
+  db: Queryable,
+  piece: { productId: string; colour: string; size: string },
+) {
+  const rows = await db.rows<{ quantity: number }>(
+    "SELECT quantity FROM stock WHERE product_id = $1 AND colour = $2 AND size = $3",
+    [piece.productId, piece.colour, piece.size],
+  );
+  return Number(rows[0]?.quantity ?? 0);
+}
+
+async function setOnHand(
+  db: Queryable,
+  piece: { productId: string; colour: string; size: string },
+  quantity: number,
+) {
+  await db.rows(
+    "UPDATE stock SET quantity = $4 WHERE product_id = $1 AND colour = $2 AND size = $3",
+    [piece.productId, piece.colour, piece.size, quantity],
+  );
 }
 
 main();
